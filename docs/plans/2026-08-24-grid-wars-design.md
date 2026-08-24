@@ -805,8 +805,13 @@ scripted episode had already exited).
    the replay with `writeArtifact`, then the shutdown grace, then `quit(0)`.
 
 **Live spectator broadcast** (`/global`): the full snapshot after every `submit`, at the start and
-end of every battle, on **every elimination**, and every 25 ticks — not every tick, which would
-flood the socket with 1600 frames for no gain.
+end of every battle, on the deadline check and when the episode settles — i.e. at every point where
+the sim's state changes in wall-clock time. There is no send *inside* a battle, and there cannot
+be: the battle runs synchronously inside the fourth `submit` (loop step 4 above) and resolves 400
+ticks in ~30 ms, so "every elimination, every 25 ticks" would be ~16 sends inside one 30 ms call —
+the flood the cadence exists to avoid, arriving in a burst after the fact. The per-tick detail
+(every elimination, the every-25-tick keyframes) lives in the frames the replay carries, which is
+what the static viewer plays back at the cadence of §*Viewer*.
 
 **Player protocol `gridwars.player.v1`** — bullwhip's frame shapes, renamed:
 
