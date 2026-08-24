@@ -841,15 +841,6 @@ proc playRound*(record: var RoundRecord, config: GameConfig) =
 
 # ---- Submission and the series ---------------------------------------------
 
-proc cutRunes(text: string, limit: int): string =
-  ## Every string that reaches the replay is cut on a RUNE boundary: a byte
-  ## slice through a multi-byte character leaves invalid UTF-8 in the
-  ## replay and breaks a strict JSON parser while still rendering in a
-  ## browser.
-  result = text
-  if result.runeLen > limit:
-    result = result.runeSubStr(0, max(limit - 1, 0)) & "…"
-
 proc capScript*(lines: seq[string]): seq[string] =
   ## Line-wise first, then rune boundaries: at most MaxScriptLines lines of
   ## at most MaxLineChars runes, joined source at most MaxScriptChars runes.

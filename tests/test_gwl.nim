@@ -2,7 +2,7 @@
 ## every fault kind, the resumable VM's suspend/resume contract, and each
 ## compile cap rejecting with a message that names the limit.
 
-import std/[strutils, unittest]
+import std/[strutils, unicode, unittest]
 import gridwars/gwl
 
 proc emptyView(x = 4, y = 4, id = 1): BoardView =
@@ -88,6 +88,26 @@ place()   # trailing
 
   test "an unexpected character names its line":
     check "line 2" in compileError("var a = 1\nvar b = a @ 2\n")
+
+  test "an unexpected character is quoted whole, never as a split byte":
+    ## The message travels to the replay (submit.compileError), so a cut
+    ## through a multi-byte character would put invalid UTF-8 in the bytes
+    ## the browser decodes.
+    let dash = compileError("var a = 1\nvar b = 2 \u2014 3\n")
+    check "line 2" in dash
+    check "\u2014" in dash
+    check dash.validateUtf8() == -1
+    ## A byte that is not valid UTF-8 at all is escaped, not quoted raw.
+    for bad in ["var a = \x80 1", "var a = \xE2 1", "var a = \xE2"]:
+      let message = compileError(bad)
+      check "unexpected character" in message
+      check message.validateUtf8() == -1
+
+  test "cutRunes cuts on a rune boundary and leaves short text alone":
+    check cutRunes("hello", 300) == "hello"
+    let long = "é".repeat(700)
+    check cutRunes(long, 600).runeLen == 600
+    check cutRunes(long, 600).validateUtf8() == -1
 
 suite "expressions":
   test "arithmetic and precedence follow Nim":

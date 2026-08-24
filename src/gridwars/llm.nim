@@ -159,13 +159,10 @@ proc newLlmClient*(config: GameConfig): LlmClient =
 # ---- Scripted baselines -----------------------------------------------------
 
 proc cleanText*(text: string, limit: int): string =
-  ## Text over the cap is cut at a RUNE boundary with the cut marked: a
-  ## byte slice through a multi-byte character leaves invalid UTF-8 in the
-  ## replay.
-  result = text.strip()
-  if result.runeLen <= limit:
-    return
-  result = result.runeSubStr(0, limit - 1) & "…"
+  ## Text over the cap is cut at a RUNE boundary with the cut marked, by
+  ## the one shared truncation (`cutRunes`, gwl.nim): a byte slice through
+  ## a multi-byte character leaves invalid UTF-8 in the replay.
+  cutRunes(text.strip(), limit)
 
 
 proc scriptedSubmission*(kind: ScriptKind): Submission =
@@ -358,9 +355,7 @@ proc extractJsonObject*(text: string): JsonNode =
   let start = cleaned.find('{')
   let stop = cleaned.rfind('}')
   if start < 0 or stop <= start:
-    var head = cleaned.strip()
-    if head.len > 160:
-      head = head[0 ..< 160] & "..."
+    let head = cutRunes(cleaned.strip(), 160)
     raise newException(GridWarsError, "no JSON object in response: " &
       head.replace("\n", " "))
   parseJson(cleaned[start .. stop])
@@ -445,7 +440,7 @@ proc textOf(client: LlmClient, response: Response, error, url: string): string =
   if error.len > 0:
     raise newException(GridWarsError, "llm transport: " & error)
   if response.code == 401 or response.code == 403:
-    let detail = response.body[0 .. min(response.body.high, 400)]
+    let detail = cutRunes(response.body, 400)
     if "Model access is denied" in response.body and
         client.tryNextBedrockModel("no model access"):
       raise newException(GridWarsError, "bedrock model access denied: " & detail)
@@ -453,12 +448,12 @@ proc textOf(client: LlmClient, response: Response, error, url: string): string =
     raise newException(GridWarsError,
       "llm auth failed (" & $response.code & ") at " & url & ": " & detail)
   if response.code == 429:
-    let detail = response.body[0 .. min(response.body.high, 300)]
+    let detail = cutRunes(response.body, 300)
     discard client.tryNextBedrockModel("throttled")
     raise newException(GridWarsError, "llm throttled (429): " & detail)
   if response.code < 200 or response.code >= 300:
     raise newException(GridWarsError, "anthropic error " & $response.code &
-      ": " & response.body[0 .. min(response.body.high, 300)])
+      ": " & cutRunes(response.body, 300))
   let payload = parseJson(response.body)
   if payload{"stop_reason"}.getStr() == "refusal":
     raise newException(GridWarsError, "anthropic refusal")
@@ -467,7 +462,7 @@ proc textOf(client: LlmClient, response: Response, error, url: string): string =
       result.add(contentBlock{"text"}.getStr())
   if payload{"stop_reason"}.getStr() == "max_tokens" and '{' notin result:
     raise newException(GridWarsError, "reply cut off at max_tokens before " &
-      "any JSON: " & result[0 .. min(result.high, 160)].replace("\n", " "))
+      "any JSON: " & cutRunes(result, 160).replace("\n", " "))
 
 proc decideAll*(
   client: LlmClient,

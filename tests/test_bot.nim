@@ -205,6 +205,21 @@ suite "reply parsing":
       check "no JSON object" in error.msg
       check "I cannot help" in error.msg
 
+  test "the quoted excerpt is cut on runes at every offset":
+    ## The excerpt travels into the retry prompt and, on a fallback, into
+    ## the replay's compileError. A byte cut at the 160-character mark
+    ## through the multi-byte character sitting on it would put a split
+    ## character in both.
+    for pad in 150 .. 170:
+      let refusal = "I am sorry, I cannot" & repeat("a", pad) & "é tail"
+      try:
+        discard extractJsonObject(refusal)
+        check false
+      except GridWarsError as error:
+        check error.msg.validateUtf8() == -1
+        check cleanText(error.msg, 300).validateUtf8() == -1
+        check fallbackSubmission(error.msg).rejected.validateUtf8() == -1
+
   test "a UTF-8 BOM does not defeat the parser":
     let reply = "\xEF\xBB\xBF{\"script\": [\"while true:\", \"  place()\"]}"
     let submission = parseSubmission(extractJsonObject(reply))

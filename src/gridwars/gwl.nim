@@ -107,6 +107,29 @@ type
     alive*: array[5, bool]          ## by warrior id 1..4
     x*, y*, id*, energy*, tiles*, tick*, bombCost*: int
 
+# ---- Rune-safe text ---------------------------------------------------------
+
+proc cutRunes*(text: string, limit: int): string =
+  ## The one truncation used by everything that can reach the replay —
+  ## notes, banner, compile errors, transport errors, model reply excerpts.
+  ## The cut is on a RUNE boundary: a byte slice through a multi-byte
+  ## character leaves invalid UTF-8 in the replay, which still renders in a
+  ## browser and fails a strict JSON parser.
+  result = text
+  if result.runeLen > limit:
+    result = result.runeSubStr(0, max(limit - 1, 0)) & "…"
+
+proc charAt(text: string, pos: int): string =
+  ## The bytes of the WHOLE character at `pos`. Quoting a single byte of a
+  ## multi-byte character into a compile error puts a split character into
+  ## the replay; a byte that is not valid UTF-8 at all is escaped instead.
+  var stop = pos + 1
+  while stop < text.len and (text[stop].uint8 and 0b1100_0000'u8) == 0b1000_0000'u8:
+    inc stop
+  result = text[pos ..< stop]
+  if result.validateUtf8() != -1:
+    result = "\\x" & toHex(text[pos].uint8, 2)
+
 # ---- Value tags -------------------------------------------------------------
 
 const
@@ -240,7 +263,8 @@ proc lex(lines: seq[string]): seq[Token] =
                    '*'}:
             op = $c
           else:
-            compileError(lineNo, "unexpected character '" & $c & "'")
+            compileError(lineNo,
+              "unexpected character '" & text.charAt(pos) & "'")
         if op == "(" or op == "[":
           inc depth
         elif op == ")" or op == "]":
