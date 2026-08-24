@@ -624,8 +624,10 @@ proc runBattle(record: var RoundRecord, config: GameConfig,
       if not state.warrior[seat].alive or intent[seat].kind != akMove:
         continue
       let fromCell = cellOf(state.warrior[seat].x, state.warrior[seat].y)
-      let targetX = wrap(state.warrior[seat].x + intent[seat].dx)
-      let targetY = wrap(state.warrior[seat].y + intent[seat].dy)
+      ## dx/dy were checked into {-1, 0, 1} in the decision pass, so the
+      ## narrowing from the VM's int64 to a board coordinate is exact.
+      let targetX = wrap(state.warrior[seat].x + int(intent[seat].dx))
+      let targetY = wrap(state.warrior[seat].y + int(intent[seat].dy))
       let target = cellOf(targetX, targetY)
       if bombAt[target] or state.board.corpse[target] or occupant[target] != 0:
         inc state.warrior[seat].blocked

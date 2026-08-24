@@ -329,6 +329,42 @@ place()
 """)
     check "overflow" in fault.message
 
+  test "the machine's numbers are int64 on every target, not platform int":
+    ## The wasm viewer re-derives every battle with --cpu:wasm32, where Nim's
+    ## `int` is 32 bits. A VM typed `int` would fault on 2000000000 +
+    ## 2000000000 in the browser and carry on to 4000000000 on the server:
+    ## different board, different digest, data-replay-error on a replay the
+    ## server considers valid. The type is fixed-width, so both agree.
+    static:
+      doAssert sizeof(GwlValue) == 8
+    let outcome = run("""
+var a = 2000000000 + 2000000000
+var b = shl(1, 40)
+var c = xor(b, 255)
+if a == 4000000000 and b == 1099511627776 and c == 1099511627775 + 256:
+  place()
+""")
+    check outcome.actions[0].kind == akPlace
+    check outcome.vm.fault.line == 0
+    ## The overflow boundary is int64's, not the platform's.
+    check faultOf("""
+var a = 9223372036854775807
+var b = a + 1
+place()
+""").message == "integer overflow"
+    check run("""
+var a = 9223372036854775807
+if a > 2147483647:
+  place()
+""").actions[0].kind == akPlace
+    ## An out-of-window check() offset past 2^31 is still FOG, and a move
+    ## offset past 2^31 is still illegal — neither is truncated into range.
+    check run("var a = check(4294967297, 0)\nif a == FOG:\n  place()\n")
+      .actions[0].kind == akPlace
+    let far = run("move(4294967297, 0)\n")
+    check far.actions[0].kind == akMove
+    check far.actions[0].dx == 4294967297'i64
+
   test "rand(0) is a fault and rand(n) stays in range":
     check "rand(n)" in faultOf("var a = rand(0)\nplace()\n").message
     let outcome = run("""

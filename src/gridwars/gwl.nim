@@ -35,6 +35,14 @@ const
   MaxFuse* = 5
 
 type
+  GwlValue* = int64
+    ## The VM's ONE numeric type. It is int64 EXPLICITLY, never platform
+    ## `int`: the wasm viewer re-derives every battle with `--cpu:wasm32`,
+    ## where `int` is 32 bits, so a VM typed `int` would overflow in the
+    ## browser at 2^31 while the server ran on to 2^63 — the two halves
+    ## would disagree, the digest would mismatch and the viewer would show
+    ## data-replay-error for a replay the server considers valid.
+
   GwlCompileError* = object of CatchableError
     line*: int
 
@@ -58,7 +66,7 @@ type
   GwlProgram* = object
     ops*: seq[GwlOp]
     names*: seq[string]
-    consts*: seq[int]
+    consts*: seq[GwlValue]
     source*: seq[string]   ## the submitted lines, verbatim, for the viewer's code pane
     globalCount*: int
     procEntry*: seq[int]   ## proc index -> entry pc
@@ -78,14 +86,14 @@ type
   GwlVm* = object          ## one warrior's resumable machine
     program*: GwlProgram
     pc*: int
-    stack*: seq[int]
+    stack*: seq[GwlValue]
     stackKind*: seq[int8]  ## value tag parallel to `stack`: 0 int, 1 bool, 2 array
     frames*: seq[Frame]
-    globals*: seq[int]
+    globals*: seq[GwlValue]
     globalKind*: seq[int8]
-    locals*: seq[int]
+    locals*: seq[GwlValue]
     localKind*: seq[int8]
-    arrays*: seq[seq[int]]
+    arrays*: seq[seq[GwlValue]]
     arraySlot*: seq[int]   ## pc -> array index an array literal reuses (-1 = none)
     halted*: bool
     fault*: GwlFault       ## line 0 = none
@@ -93,7 +101,7 @@ type
 
   GwlAction* = object
     kind*: ActionKind
-    dx*, dy*: int
+    dx*, dy*: GwlValue
     line*: int
     stalled*: bool         ## akWait produced by the instruction budget, not by wait()
 
@@ -170,7 +178,7 @@ type
   Token = object
     kind: TokKind
     text: string
-    value: int
+    value: GwlValue
     line: int
 
 proc compileError(line: int, message: string) {.noreturn.} =
@@ -237,9 +245,9 @@ proc lex(lines: seq[string]): seq[Token] =
         var stop = pos
         while stop < text.len and text[stop] in {'0' .. '9'}:
           inc stop
-        var value = 0
+        var value: GwlValue = 0
         try:
-          value = parseInt(text[pos ..< stop])
+          value = parseBiggestInt(text[pos ..< stop])
         except ValueError:
           compileError(lineNo, "integer literal out of range: " &
             text[pos ..< stop])
@@ -295,7 +303,7 @@ type
   Node = ref object
     kind: NodeKind
     line: int
-    intVal: int
+    intVal: GwlValue
     boolVal: bool
     name: string
     op: string
@@ -653,7 +661,7 @@ proc emit(c: var Compiler, kind: GwlOpKind, a, b, line: int): int =
   result = c.program.ops.len
   c.program.ops.add(GwlOp(kind: kind, a: a, b: b, line: line))
 
-proc constIndex(c: var Compiler, value: int): int =
+proc constIndex(c: var Compiler, value: GwlValue): int =
   for index, existing in c.program.consts:
     if existing == value:
       return index
@@ -1049,7 +1057,7 @@ proc newVm*(program: GwlProgram, seat, seed: int): GwlVm =
   result = GwlVm(
     program: program,
     pc: 0,
-    globals: newSeq[int](program.globalCount),
+    globals: newSeq[GwlValue](program.globalCount),
     globalKind: newSeq[int8](program.globalCount),
     arraySlot: newSeq[int](program.ops.len)
   )
@@ -1073,58 +1081,58 @@ proc fail(vm: var GwlVm, line: int, message: string) =
   if vm.fault.line == 0:
     vm.fault = GwlFault(line: line, message: message)
 
-proc push(vm: var GwlVm, value: int, kind: int8) =
+proc push(vm: var GwlVm, value: GwlValue, kind: int8) =
   vm.stack.add(value)
   vm.stackKind.add(kind)
 
-proc popValue(vm: var GwlVm): tuple[value: int, kind: int8] =
+proc popValue(vm: var GwlVm): tuple[value: GwlValue, kind: int8] =
   result = (vm.stack[^1], vm.stackKind[^1])
   discard vm.stack.pop()
   discard vm.stackKind.pop()
 
-proc addChecked(a, b: int, ok: var bool): int =
-  if (b > 0 and a > high(int) - b) or (b < 0 and a < low(int) - b):
+proc addChecked(a, b: GwlValue, ok: var bool): GwlValue =
+  if (b > 0 and a > high(int64) - b) or (b < 0 and a < low(int64) - b):
     ok = false
     return 0
   a + b
 
-proc subChecked(a, b: int, ok: var bool): int =
-  if (b < 0 and a > high(int) + b) or (b > 0 and a < low(int) + b):
+proc subChecked(a, b: GwlValue, ok: var bool): GwlValue =
+  if (b < 0 and a > high(int64) + b) or (b > 0 and a < low(int64) + b):
     ok = false
     return 0
   a - b
 
-proc mulChecked(a, b: int, ok: var bool): int =
+proc mulChecked(a, b: GwlValue, ok: var bool): GwlValue =
   ## The multiply itself must never execute unchecked: a debug build traps
   ## on OverflowDefect, and the VM reports overflow as a warrior fault.
   if a == 0 or b == 0:
     return 0
   if a == -1:
-    if b == low(int):
+    if b == low(int64):
       ok = false
       return 0
     return -b
   if b == -1:
-    if a == low(int):
+    if a == low(int64):
       ok = false
       return 0
     return -a
   if a > 0:
     if b > 0:
-      if a > high(int) div b:
+      if a > high(int64) div b:
         ok = false
         return 0
     else:
-      if b < low(int) div a:
+      if b < low(int64) div a:
         ok = false
         return 0
   else:
     if b > 0:
-      if a < low(int) div b:
+      if a < low(int64) div b:
         ok = false
         return 0
     else:
-      if a < high(int) div b:
+      if a < high(int64) div b:
         ok = false
         return 0
   a * b
@@ -1132,24 +1140,28 @@ proc mulChecked(a, b: int, ok: var bool): int =
 proc cellIndex(x, y: int): int =
   ((y mod Grid + Grid) mod Grid) * Grid + ((x mod Grid + Grid) mod Grid)
 
-proc checkAt(view: BoardView, dx, dy: int): int =
+proc outsideWindow(dx, dy: GwlValue): bool =
+  ## Written without `abs`, which has no answer for low(int64).
+  dx > FogRadius or dx < -FogRadius or dy > FogRadius or dy < -FogRadius
+
+proc checkAt(view: BoardView, dx, dy: GwlValue): GwlValue =
   ## The 9x9 window comes FIRST: `check`/`who` are the game's partial
   ## observability, so nothing outside the window may leak, not even a
   ## bomb (design note, Deviations: "check/who see a 9x9 window; beyond
   ## is FOG").
-  if abs(dx) > FogRadius or abs(dy) > FogRadius:
+  if outsideWindow(dx, dy):
     return ValFog
-  let cell = cellIndex(view.x + dx, view.y + dy)
+  let cell = cellIndex(view.x + int(dx), view.y + int(dy))
   if view.bomb[cell]:
     return ValBomb
   if view.corpse[cell]:
     return ValCorpse
   int(view.owner[cell])
 
-proc whoAt(view: BoardView, dx, dy: int): int =
-  if abs(dx) > FogRadius or abs(dy) > FogRadius:
+proc whoAt(view: BoardView, dx, dy: GwlValue): GwlValue =
+  if outsideWindow(dx, dy):
     return ValFog
-  int(view.occupant[cellIndex(view.x + dx, view.y + dy)])
+  int(view.occupant[cellIndex(view.x + int(dx), view.y + int(dy))])
 
 proc liveElements(vm: GwlVm): int =
   for entry in vm.arrays:
@@ -1175,7 +1187,7 @@ proc step*(vm: var GwlVm, view: BoardView, budget: int): GwlAction =
     case op.kind
     of opPush:
       if op.b == 1:
-        vm.push(op.a, kBool)
+        vm.push(GwlValue(op.a), kBool)
       else:
         vm.push(vm.program.consts[op.a], kInt)
     of opLoad:
@@ -1211,12 +1223,12 @@ proc step*(vm: var GwlVm, view: BoardView, budget: int): GwlAction =
         if indexValue.kind != kInt:
           vm.fail(line, "an array index must be an integer")
           return
-        let entry = vm.arrays[arrayValue.value]
+        let entry = vm.arrays[int(arrayValue.value)]
         if indexValue.value < 0 or indexValue.value >= entry.len:
           vm.fail(line, "array index " & $indexValue.value &
             " out of range 0.." & $(entry.len - 1))
           return
-        vm.push(entry[indexValue.value], kInt)
+        vm.push(entry[int(indexValue.value)], kInt)
       else:
         let value = vm.popValue()
         let indexValue = vm.popValue()
@@ -1227,11 +1239,12 @@ proc step*(vm: var GwlVm, view: BoardView, budget: int): GwlAction =
         if indexValue.kind != kInt or value.kind != kInt:
           vm.fail(line, "an array holds integers indexed by an integer")
           return
-        if indexValue.value < 0 or indexValue.value >= vm.arrays[arrayValue.value].len:
+        if indexValue.value < 0 or
+            indexValue.value >= vm.arrays[int(arrayValue.value)].len:
           vm.fail(line, "array index " & $indexValue.value &
-            " out of range 0.." & $(vm.arrays[arrayValue.value].len - 1))
+            " out of range 0.." & $(vm.arrays[int(arrayValue.value)].len - 1))
           return
-        vm.arrays[arrayValue.value][indexValue.value] = value.value
+        vm.arrays[int(arrayValue.value)][int(indexValue.value)] = value.value
     of opBin:
       let right = vm.popValue()
       let left = vm.popValue()
@@ -1259,7 +1272,7 @@ proc step*(vm: var GwlVm, view: BoardView, budget: int): GwlAction =
           vm.fail(line, "arithmetic needs two integers")
           return
         var ok = true
-        var value = 0
+        var value: GwlValue = 0
         case op2
         of bAdd: value = addChecked(left.value, right.value, ok)
         of bSub: value = subChecked(left.value, right.value, ok)
@@ -1268,7 +1281,7 @@ proc step*(vm: var GwlVm, view: BoardView, budget: int): GwlAction =
           if right.value == 0:
             vm.fail(line, "division by zero")
             return
-          if left.value == low(int) and right.value == -1:
+          if left.value == low(int64) and right.value == -1:
             ok = false
           else:
             value = left.value div right.value
@@ -1276,7 +1289,7 @@ proc step*(vm: var GwlVm, view: BoardView, budget: int): GwlAction =
           if right.value == 0:
             vm.fail(line, "modulo by zero")
             return
-          if left.value == low(int) and right.value == -1:
+          if left.value == low(int64) and right.value == -1:
             value = 0
           else:
             value = left.value mod right.value
@@ -1291,7 +1304,7 @@ proc step*(vm: var GwlVm, view: BoardView, budget: int): GwlAction =
         if value.kind != kInt:
           vm.fail(line, "unary '-' needs an integer")
           return
-        if value.value == low(int):
+        if value.value == low(int64):
           vm.fail(line, "integer overflow")
           return
         vm.push(-value.value, kInt)
@@ -1337,7 +1350,7 @@ proc step*(vm: var GwlVm, view: BoardView, budget: int): GwlAction =
             " arguments, got " & $op.b)
           return
         if builtin == fArray:
-          var entry = newSeq[int](op.b)
+          var entry = newSeq[GwlValue](op.b)
           for index in countdown(op.b - 1, 0):
             let value = vm.popValue()
             if value.kind != kInt:
@@ -1355,9 +1368,9 @@ proc step*(vm: var GwlVm, view: BoardView, budget: int): GwlAction =
             vm.arraySlot[vm.pc - 1] = slot
           else:
             vm.arrays[slot] = entry
-          vm.push(slot, kArray)
+          vm.push(GwlValue(slot), kArray)
         else:
-          var args: array[2, tuple[value: int, kind: int8]]
+          var args: array[2, tuple[value: GwlValue, kind: int8]]
           for index in countdown(op.b - 1, 0):
             args[index] = vm.popValue()
           for index in 0 ..< op.b:
@@ -1374,23 +1387,23 @@ proc step*(vm: var GwlVm, view: BoardView, budget: int): GwlAction =
               return
             vm.push((if builtin == fCheck: checkAt(view, arg0, arg1)
                      else: whoAt(view, arg0, arg1)), kInt)
-          of fX: vm.push(view.x, kInt)
-          of fY: vm.push(view.y, kInt)
-          of fTiles: vm.push(view.tiles, kInt)
-          of fEnergy: vm.push(view.energy, kInt)
-          of fTick: vm.push(view.tick, kInt)
-          of fId: vm.push(view.id, kInt)
-          of fBombCost: vm.push(view.bombCost, kInt)
+          of fX: vm.push(GwlValue(view.x), kInt)
+          of fY: vm.push(GwlValue(view.y), kInt)
+          of fTiles: vm.push(GwlValue(view.tiles), kInt)
+          of fEnergy: vm.push(GwlValue(view.energy), kInt)
+          of fTick: vm.push(GwlValue(view.tick), kInt)
+          of fId: vm.push(GwlValue(view.id), kInt)
+          of fBombCost: vm.push(GwlValue(view.bombCost), kInt)
           of fAlive:
-            vm.push((if arg0 >= 1 and arg0 <= 4 and view.alive[arg0]: 1
+            vm.push((if arg0 >= 1 and arg0 <= 4 and view.alive[int(arg0)]: 1
                      else: 0), kInt)
           of fRand:
             if arg0 <= 0:
               vm.fail(line, "rand(n) needs n > 0, got " & $arg0)
               return
-            vm.push(int(vm.nextRandom() mod uint64(arg0)), kInt)
+            vm.push(GwlValue(vm.nextRandom() mod uint64(arg0)), kInt)
           of fAbs:
-            if arg0 == low(int):
+            if arg0 == low(int64):
               vm.fail(line, "integer overflow")
               return
             vm.push(abs(arg0), kInt)
@@ -1400,7 +1413,7 @@ proc step*(vm: var GwlVm, view: BoardView, budget: int): GwlAction =
             if args[0].kind != kArray:
               vm.fail(line, "len() needs an array")
               return
-            vm.push(vm.arrays[args[0].value].len, kInt)
+            vm.push(GwlValue(vm.arrays[int(args[0].value)].len), kInt)
           of fXor: vm.push(arg0 xor arg1, kInt)
           of fShl:
             if arg1 < 0 or arg1 > 62:
@@ -1416,13 +1429,13 @@ proc step*(vm: var GwlVm, view: BoardView, budget: int): GwlAction =
             if arg1 == 0:
               vm.fail(line, "modulo by zero")
               return
-            vm.push((if arg0 == low(int) and arg1 == -1: 0
+            vm.push((if arg0 == low(int64) and arg1 == -1: GwlValue(0)
                      else: arg0 mod arg1), kInt)
           of fDiv:
             if arg1 == 0:
               vm.fail(line, "division by zero")
               return
-            if arg0 == low(int) and arg1 == -1:
+            if arg0 == low(int64) and arg1 == -1:
               vm.fail(line, "integer overflow")
               return
             vm.push(arg0 div arg1, kInt)
