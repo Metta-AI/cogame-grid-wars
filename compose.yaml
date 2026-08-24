@@ -1,0 +1,10 @@
+services:
+  # The service name is the manifest's image placeholder: `coworld build`
+  # derives {{GRIDWARS_IMAGE}} from `services.gridwars`, so this name has no
+  # hyphen even though the slug does ({{GAME_IMAGE}} is not a thing).
+  gridwars:
+    image: coworld-grid-wars:latest
+    platform: linux/amd64
+    build:
+      context: .
+      network: host

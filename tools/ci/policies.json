@@ -1,0 +1,31 @@
+[
+  {
+    "name": "grid-wars-tactician",
+    "run": "/bin/gridwars-player",
+    "env": {
+      "PLAYER_PROMPT": "Territory is the score, but a dead warrior owns nothing: write a warrior that paints every tile it stands on, never walks into a bomb or a corpse, and turns rather than stalls. Keep a wall of your own bombs between you and the nearest rival, and only spend energy on a bomb when a rival is within two cells or when a bomb seals a gap. Change one thing per round and read your diagnostics: a fault line, an idle death or a high `blocked` count tells you exactly what to fix. Prefer a short program that always runs to a clever one that faults on line 40."
+    }
+  },
+  {
+    "name": "grid-wars-cartographer",
+    "run": "/bin/gridwars-player",
+    "env": {
+      "PLAYER_PROMPT": "Play the board, not the opponent. Each round, read the final map you are given: find the largest region no one held and write a warrior that walks a spiral or a boustrophedon sweep through it, claiming as it goes, using bombs only to fence the region off. Count your instruction budget - 2000 per tick - and keep loops short. If your last warrior died to idle, add a rule that guarantees a move every tick; if it died to a bomb, add a check before every move."
+    },
+    "player": "ply_bac48eb1-662e-44f8-973d-f3e016dccf5d"
+  },
+  {
+    "name": "grid-wars-painter",
+    "run": "/bin/gridwars-player",
+    "env": {
+      "PLAYER_SCRIPTED": "painter"
+    }
+  },
+  {
+    "name": "grid-wars-bomber",
+    "run": "/bin/gridwars-player",
+    "env": {
+      "PLAYER_SCRIPTED": "bomber"
+    }
+  }
+]

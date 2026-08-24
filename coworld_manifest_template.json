@@ -1,0 +1,470 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Metta-AI/coworld/main/src/coworld/coworld_manifest_schema.json",
+  "tags": [
+    "programming-game",
+    "core-wars",
+    "grid",
+    "territory",
+    "zero-sum",
+    "llm-driven",
+    "four-player",
+    "code-generation"
+  ],
+  "episode_timeout_minutes": 20,
+  "game": {
+    "name": "grid-wars",
+    "replay_viewer": {
+      "bundle": "static-replay-viewer"
+    },
+    "description": "Grid Wars: Core Wars on a 30x30 toroidal grid, for four LLM-piloted cogs. A seat does not move a warrior - it WRITES one. Every round all four seats simultaneously submit a complete program in GWL, a small Nim-like, integer-only DSL (check(dx,dy), who(dx,dy), move, place, bomb, wait, while/if/for/proc), the four scripts are sealed and compiled, and the engine fights them for up to 400 ticks on an empty board. Tiles are claimed by standing on them and calling place(); bombs cost energy, are walls for five ticks and then scorch a plus of five cells, chaining into any bomb they touch; corpses are permanent walls; 50 ticks without moving kills you; and a fault - a divide by zero, an index out of range, an undefined name - kills you on the spot with the line number reported back to you before the next round. When a warrior dies every tile it owned reverts to unclaimed, so elimination is decisive and the board visibly un-paints. Scoring is symmetric zero-sum: raw = tiles + 100 if alive + 50 per kill - 50 per self-kill, and a seat's score is its mean deviation from the four-seat average, so the four scores sum to zero. Seats see the board, never each other's code. The game is LLM-driven and A POLICY IS JUST A PROMPT: field one by reusing the published grid-wars-player runnable with PLAYER_PROMPT set to your strategy. Three scripted warriors (painter, bomber, sentry) play any seat that registers as scripted - and every seat when no LLM credentials are available, so episodes always complete.",
+    "owner": "daveey@gmail.com",
+    "runnable": {
+      "type": "game",
+      "image": "{{GRIDWARS_IMAGE}}",
+      "run": [
+        "/bin/gridwars"
+      ],
+      "env": {
+        "ANTHROPIC_API_KEY_URI": "secret://coworld/grid-wars/anthropic_api_key"
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-grid-wars/tree/main"
+    },
+    "config_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tokens",
+        "players"
+      ],
+      "properties": {
+        "tokens": {
+          "description": "One connection token per player slot, indexed by slot.",
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "players": {
+          "description": "One player display-name object per seat, indexed by slot.",
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "num_agents": {
+          "description": "Seat count; injected by the commissioner. Grid Wars is a four-player game.",
+          "type": "integer",
+          "minimum": 4,
+          "maximum": 4
+        },
+        "seed": {
+          "description": "Pins the spawn permutation, every warrior's rand() stream and the seat aliases. Omit for a fresh random seed per episode.",
+          "type": "integer"
+        },
+        "rounds": {
+          "description": "Script-submission rounds in the series. Each round is one submission phase plus one battle.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12,
+          "default": 5
+        },
+        "ticks": {
+          "description": "Ticks in one battle before the round ends by horizon.",
+          "type": "integer",
+          "minimum": 20,
+          "maximum": 1200,
+          "default": 400
+        },
+        "bombCost": {
+          "description": "Energy a bomb() costs. Warriors read it as BOMBCOST.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60,
+          "default": 12
+        },
+        "episodeTimeoutSeconds": {
+          "description": "Wall-clock the game assumes the platform allows an episode when COWORLD_TIMEOUT_SECONDS is not in its environment; play stops between rounds at 60% of it so results and the replay always land.",
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 6000,
+          "default": 1200
+        },
+        "roundDelayMs": {
+          "description": "Spectator pacing delay between rounds.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000,
+          "default": 250
+        },
+        "model": {
+          "description": "Claude model for the direct-Anthropic transport (ANTHROPIC_API_KEY). Hosted Bedrock ignores this and rotates through its own haiku-first candidate list; set BEDROCK_MODEL to pin one.",
+          "type": "string",
+          "default": "claude-sonnet-5"
+        },
+        "maxOutputTokens": {
+          "description": "A warrior program is long; 900 truncates it mid-script.",
+          "type": "integer",
+          "minimum": 256,
+          "maximum": 4000,
+          "default": 2400
+        },
+        "llmTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 300,
+          "default": 60
+        },
+        "player_connect_timeout_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "default": 180
+        }
+      }
+    },
+    "results_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "names",
+        "scores",
+        "tiles",
+        "roundsWon",
+        "kills",
+        "deaths",
+        "faults",
+        "fallbacks",
+        "rounds",
+        "maxRounds",
+        "ticks",
+        "roundReasons",
+        "winner",
+        "reason"
+      ],
+      "properties": {
+        "names": {
+          "description": "Policy display names, indexed by slot. Seats play under anonymous cog aliases in-game; results attribute by policy name.",
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "string"
+          }
+        },
+        "scores": {
+          "description": "Mean roundScore over the rounds played: the seat's deviation from the four-seat average. Signed, higher is better, and the four sum to exactly zero.",
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "number"
+          }
+        },
+        "tiles": {
+          "description": "Total tiles held at the end of each played round, summed.",
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "roundsWon": {
+          "description": "Rounds in which this seat's raw score was the unique maximum.",
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "kills": {
+          "description": "Rival warriors this seat's bombs eliminated.",
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "deaths": {
+          "description": "Rounds this seat's warrior did not survive.",
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "faults": {
+          "description": "Rounds this seat's warrior died of a runtime fault.",
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "fallbacks": {
+          "description": "Rounds this seat's reply was rejected twice and the built-in sentry warrior stood in.",
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "rounds": {
+          "description": "Rounds actually played.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxRounds": {
+          "description": "The episode's round count after budget fitting.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "ticks": {
+          "description": "Ticks per battle.",
+          "type": "integer",
+          "minimum": 20
+        },
+        "roundReasons": {
+          "description": "How each played round ended: horizon, lastStanding or wipeout.",
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 12,
+          "items": {
+            "type": "string"
+          }
+        },
+        "winner": {
+          "description": "Policy name of the seat with the highest score.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "How the episode ended: complete (all rounds played) or deadline (episode clock; scores use the rounds played). Those are the only two values.",
+          "type": "string"
+        }
+      }
+    },
+    "protocols": {
+      "player": {
+        "type": "text",
+        "value": "gridwars.player.v1 - JSON text frames over the websocket named by COWORLD_PLAYER_WS_URL (already carrying ?slot=N&token=T). A Grid Wars policy is a prompt: the player container's only job is to deliver it; the game server writes the warrior by sending that prompt plus the seat's alias, its own current script with line numbers, its own diagnostics, the series table and the previous round's ASCII board to Claude once a round, as one parallel batch across all four seats. game->player frames: {\"type\":\"welcome\",\"protocol\":\"gridwars.player.v1\",\"slot\":N,\"name\":alias,\"id\":1..4,\"rounds\":R,\"ticks\":T} on connect; {\"type\":\"state\",\"slot\":N,\"name\":alias,\"seat\":{id,color,score,roundsWon,tiles,notes,script,lastRound},\"tiles\":[4],\"aliveLastRound\":[4],\"round\":int,\"rounds\":int,\"roundsPlayed\":int,\"ticks\":int,\"done\":bool,\"reason\":str} after every event - REDACTED to this seat: its own warrior, its own script and its own notes plus the public tile counts, never another seat's source, which is sealed before, during and after the round; {\"type\":\"final\",\"done\":true,\"scores\":[4],\"tiles\":[4],\"roundsWon\":[4],\"names\":[4 aliases],\"rounds\":int,\"reason\":\"complete|deadline\"} at episode end, after which the player should exit. player->game frames: {\"type\":\"prompt\",\"prompt\":str,\"scripted\":str} - the prompt (max 4000 characters) is the policy, sent right after connecting and again after welcome; scripted \"painter\" (or \"1\") seats the built-in spiral painter, \"bomber\" the aggressive baseline, \"sentry\" the always-legal fallback, and \"\" means LLM-driven. The reference player reads PLAYER_PROMPT and PLAYER_SCRIPTED from its environment."
+      },
+      "global": {
+        "type": "text",
+        "value": "Global spectators connect a websocket to /global and receive the full snapshot as JSON after every event. The snapshot is one FRAME of the same shape the replay viewer reads, plus the transcript: {\"type\":\"state\",\"game\":\"grid-wars\",\"seats\":[{name,seat,color,id,score,raw,tiles,peakTiles,energy,alive,x,y,idle,kills,selfKills,line,action,banner,deathCause,faultLine,faultText,origin,scriptLines,pending} x4 by seat],\"grid\":\"900 chars, row-major, '.' unclaimed and '1'..'4' owner\" (or \"gridDelta\":[[cell,\"c\"]] on a non-keyframe frame),\"bombs\":[{x,y,fuse,seat}],\"corpses\":[[x,y]],\"blast\":[[x,y]] (the cells detonating on THIS frame),\"round\":int,\"rounds\":int,\"tick\":int,\"ticks\":int,\"roundsPlayed\":int,\"phase\":\"submit|battle|roundEnd|done\",\"focus\":seat,\"scripts\":[[line] x4],\"series\":[[{raw,tiles,kills,alive,roundScore} x4] x rounds],\"log\":[str],\"gameDone\":bool,\"reason\":str,\"policyNames\":[4],\"events\":[...],\"started\":bool,\"done\":bool,\"connected\":[bool]}. The events array is append-only and carries the complete transcript in five kinds: start; round (round, seed - the server-side RNG, logged - spawn, ticks); submit (round, seat, script, lines, origin llm|retry|fallback|scripted, compileError, banner, scripted, text = the seat's notes); battle (round, ticksPlayed, reason horizon|lastStanding|wipeout, stats x4, curve x4, digest); end (round = rounds played, text = complete|deadline). The per-tick history is NOT in the log: it is re-derived from the round seed, the spawn permutation and the scripts by the same Nim sim the server runs, and the recorded digest proves the re-derivation. The browser page at /client/global renders the arena live; /client/replay plays a recorded episode; the STATIC replay viewer bundle is what the platform serves for hosted replays (index.html?replay=<url>)."
+      }
+    },
+    "docs": {
+      "readme": {
+        "type": "text",
+        "value": "Grid Wars is Core Wars on a 30x30 toroidal grid for four LLM-piloted cogs. You do not move a warrior, you write one: every round all four seats simultaneously submit a complete program in GWL - a small, integer-only, Nim-like DSL - the scripts are sealed and compiled, and the engine fights them for up to 400 ticks. Claim tiles by standing on them and calling place(). Bombs cost energy, block movement for five ticks, then scorch a plus of five cells and chain into any bomb they touch. Corpses are permanent walls. Fifty ticks without moving kills you, and so does a fault - which is reported back to you with its line number before the next round, so a series is five rounds of debugging under fire. When a warrior dies every tile it owned reverts to unclaimed. Scoring is symmetric zero-sum: raw = tiles + 100 if alive + 50 per kill - 50 per self-kill, and your score is your mean deviation from the four-seat average, so the four scores sum to zero. A policy is just a prompt: field one by reusing the published grid-wars-player runnable with the PLAYER_PROMPT environment variable set to your strategy. With no LLM credentials (or for seats that register scripted) the server plays the built-in painter, bomber or sentry warrior, so episodes always complete."
+      },
+      "pages": [
+        {
+          "id": "rules.md",
+          "title": "rules.md",
+          "content": {
+            "type": "text",
+            "value": "# Grid Wars rules\n\n## Seats and the series\n\nFour seats, exactly. Seat s is warrior id s+1 (1 red, 2 blue, 3 green, 4 yellow). In-game every\nseat plays under an anonymous cog alias drawn from the seed; policy names appear only in the\nresults and in the replay viewer, never in a prompt.\n\nAn episode is a best-of series of `rounds` rounds (default 5, 1..12). One round is:\n\n1. **Submission.** All four seats simultaneously submit a complete warrior program in GWL \u2014 a fresh\n   one or a patch of their own previous one. This is the only LLM work in the game, and it goes out\n   as one parallel batch.\n2. **Sealing.** All four scripts are compiled and written to the event log, with the round's derived\n   seed, before the first tick runs. No seat ever sees another seat's source, before or after.\n3. **The battle.** The four warriors are placed on an empty 30x30 board and the engine runs up to\n   `ticks` ticks (default 400, 20..1200). Pure integer arithmetic, no network, ~30 ms.\n4. **Scoring**, then the next round, with every seat shown what happened.\n\n## The arena\n\n- The board is 30x30 and **toroidal**: x and y wrap.\n- Each cell carries, independently: an owner (0 unclaimed, else a warrior id), at most one live\n  bomb, and a permanent corpse flag. A cell holds at most one living warrior.\n- Warriors start at the four fixed corners (4,4), (25,4), (4,25), (25,25), assigned by a seeded\n  permutation drawn per round and logged in the round event. Each starts with 12 energy.\n- **Energy** funds bombs. At the end of every tick a living warrior gains `1 + tiles div 60`, capped\n  at 60. `bomb()` costs `bombCost` (default 12).\n- **Bombs are walls and weapons.** A live bomb blocks movement and detonates when its fuse reaches\n  0, five ticks after it is planted.\n- **Blast:** the bomb's own cell plus its four orthogonal neighbours, wrapping. Every blast cell is\n  scorched \u2014 its owner reset to 0, any bomb on it consumed \u2014 and every warrior standing in it dies.\n  Bombs caught in a blast detonate in the same wave: chain reactions resolve to closure.\n- **Corpses are permanent walls.**\n- **A dead warrior's paint fades:** on elimination every tile it owned reverts to unclaimed, at\n  once. Elimination is decisive and the board visibly un-paints.\n\n## Tick resolution order\n\nExactly this order, every tick, for t = 0 .. ticks-1:\n\n1. **Priority** rotates: seats (0+t) mod 4, (1+t) mod 4, (2+t) mod 4, (3+t) mod 4. All ties in steps\n   3-5 break by this order and only by it, so no seat has a structural first-mover advantage.\n2. **Decision pass.** Each living, non-halted warrior resumes its VM and runs until it reaches an\n   action or spends 2000 instructions. The board is NOT mutated in this pass: every `check`/`who` in\n   tick t reads the board as it stood at the end of tick t-1, for every seat.\n3. **Bomb pass**, priority order: if alive, `energy >= bombCost` and no live bomb is already on the\n   cell, plant one (fuse 5) and pay; otherwise the action is refused.\n4. **Place pass**, priority order: the warrior's current cell becomes its own, overwriting any\n   previous owner.\n5. **Move pass**, priority order: the target is ((x+dx) mod 30, (y+dy) mod 30). The move is blocked\n   if the target holds a live bomb, a corpse, or a living warrior \u2014 including one that moved there\n   earlier in this same pass.\n6. **Fuse pass.** Every live bomb's fuse drops by 1.\n7. **Detonation pass.** Every bomb at fuse 0 detonates; the closure of their blasts is grown in\n   ascending cell index, which makes the closure and the kill attribution deterministic. In one\n   wave: every cell in the closure loses its owner and its bomb, and every warrior standing in it is\n   eliminated (killedBy = the owner of the lowest-cell-index detonating bomb covering that cell) and\n   leaves a corpse.\n8. **Idle pass.** A warrior whose cell is unchanged since the previous tick gains an idle point;\n   50 kills it.\n9. **Fault pass.** Every warrior that faulted this tick is eliminated, with the line and message\n   recorded and shown to that seat before the next round.\n10. **Bookkeeping.** Every warrior eliminated this tick loses all its tiles; tiles are recounted;\n    survivors gain energy.\n11. **Round end test.** The round ends after this tick if t+1 == ticks (`horizon`), or exactly one\n    warrior is alive (`lastStanding`), or none is (`wipeout`).\n\nEvery quantity above is an integer. No hash-table iteration order, no floating point, no wall-clock\ninput: the battle is a pure function of (scripts, round seed, config), which is what lets the\nbrowser's wasm viewer re-derive every tick and check its own digest.\n\n## Scoring \u2014 zero-sum, higher is better\n\nPer round, per seat:\n\n    raw[s]        = tiles[s] + 100 if alive at round end + 50 * kills[s] - 50 * selfKills[s]\n    roundScore[s] = raw[s] - (raw[0] + raw[1] + raw[2] + raw[3]) / 4\n\nPer episode: `score[s] = (sum of roundScore[s] over played rounds) / roundsPlayed`.\n\nThe four scores sum to exactly zero. Higher is better: a seat that out-paints and outlives the field\nis positive and the field is negative. The league ranks by mean `score`. `roundsWon` and total\n`tiles` are reported for display and are the endcard tie-breaks only.\n\n## End conditions\n\n`results.reason` is `complete` (all rounds played) or `deadline` (the episode clock stopped play\nbetween rounds; scores use the rounds actually played). Those are the only two values. Per-round\nendings \u2014 `horizon`, `lastStanding`, `wipeout` \u2014 are reported in `results.roundReasons`.\n\n## What a seat sees\n\nIts alias, its warrior id and colour; the round number and the totals; its OWN current script with\nline numbers; its own diagnostics from the previous round (compile error, fault line and message,\nticks survived, death cause, final and peak tiles, kills, selfKills, illegal, blocked, refused,\nstalls, and its tile count sampled every 25 ticks); the series table by alias; the previous round's\nfinal board as a 30x30 ASCII map; and its own private notes.\n\nHidden from every seat, always: every other seat's script source (sealed, before and after), every\nother seat's notes and banner, the mapping alias -> policy name, and the round seed before the round\nruns.\n"
+          }
+        },
+        {
+          "id": "warrior-language.md",
+          "title": "warrior-language.md",
+          "content": {
+            "type": "text",
+            "value": "# The Grid Wars warrior language (GWL v1)\n\nA Grid Wars policy is a prompt, and what that prompt has to produce is a **program**. This page is the complete language reference the game hands every seat in its system prompt, plus the three warriors that ship inside the image.\n\n```\nGWL \u2014 the warrior language\n\nA warrior is a program. It runs from the top; wrap your behaviour in\n`while true:` or it will run off the end, stop acting and die to the idle\nrule. Indentation is 2 spaces per level and is significant. `#` starts a\ncomment. INTEGERS ONLY \u2014 there are no floats, no strings, no tables.\n\nSTATEMENTS\n  var NAME = EXPR            declare and initialise\n  NAME = EXPR                assign\n  NAME[EXPR] = EXPR          assign into an array\n  if EXPR: / elif EXPR: / else:    with an indented block\n  while EXPR:                with break and continue\n  for NAME in A ..< B:       also `A .. B` and `for NAME in ARRAY:`\n  proc NAME(p1, p2) =        globals visible, parameters by value\n  return EXPR                or bare `return`\n  discard EXPR               evaluate and drop\n  move(dx, dy)  place()  bomb()  wait()      ACTIONS \u2014 each ENDS your tick\n\nEXPRESSIONS\n  integers, true/false, names, [a, b, c], a[i], calls, ( ), unary - and not,\n  and infix  *  div  mod  +  -  ==  !=  <  <=  >  >=  and  or\n  with Nim's precedence. `and`/`or` short-circuit. Booleans are a distinct\n  type: `if 1:` is a fault. `div`/`mod` also exist as calls: `mod(a, b)`.\n\nBUILTINS\n  check(dx, dy)  BOMB (-1) live bomb, CORPSE (-2) corpse, FOG (-3) outside\n                 the 9x9 window around you, else the tile owner 1..4 or\n                 EMPTY (0)\n  who(dx, dy)    the id 1..4 of the LIVING warrior standing there, else 0;\n                 FOG outside the window\n  x()  y()       your coordinates, 0..29\n  tiles()  energy()  tick()\n  alive(id)      1 if warrior id is alive, else 0\n  rand(n)        0..n-1 from your own seeded stream; n <= 0 is a fault\n  abs(a)  min(a,b)  max(a,b)  len(a)  xor(a,b)  shl(a,b)  shr(a,b)\n\nCONSTANTS\n  BOMB -1, CORPSE -2, FOG -3, EMPTY 0, ID (your warrior id), gridSize 30,\n  MAXFUSE 5, BOMBCOST (the energy a bomb costs this episode)\n\nACTIONS\n  move(dx, dy) is ONE STEP: dx and dy are each -1, 0 or 1 and not both 0.\n  Any other offset is an ILLEGAL action: the tick is spent and nothing\n  happens. place() claims the cell you stand on. bomb() plants a bomb on\n  the cell you stand on; it is refused if you cannot afford it or a bomb is\n  already there. wait() does nothing. Executing an action SUSPENDS your\n  program there; next tick it resumes on the next line.\n\nLIMITS\n  at most 120 lines, 100 characters a line, 4000 characters, 4000 AST\n  nodes, 32 procs, blocks nested 8 deep; at most 2000 VM instructions per\n  tick (running out is a STALL: the tick counts as wait() and you resume\n  where you were), call depth 64, 4096 live array elements.\n\nFAULTS kill your warrior on the spot, with the line number reported back to\nyou: divide or modulo by zero, an array index out of range, an undefined\nvariable or proc, a wrong argument count, a type mismatch, call depth\nexceeded, the allocation limit, rand(n <= 0), integer overflow. An illegal\nmove, a refused bomb, a blocked move and a stall are NOT faults.\n```\n\n## Reply contract\n\nThe game asks for one JSON object and nothing else:\n\n```json\n{\"script\": [\"var dx = 1\", \"var dy = 0\", \"while true:\", \"  place()\", \"  move(dx, dy)\"],\n \"notes\": \"private, fed back to you next round\",\n \"banner\": \"one line the spectators see\"}\n```\n\n`script` is canonically an ARRAY OF LINES \u2014 that removes the single most common JSON failure, a literal newline inside a string \u2014 but a single string with newlines is accepted, markdown fences are stripped, and trailing prose after the closing brace is ignored. `script` is capped at 120 lines of 100 characters and 4000 characters in total, `notes` at 600 characters and `banner` at 80, all cut on rune boundaries. A reply that does not parse or does not COMPILE is retried once with the exact compiler message (`line N: message`); a seat still failing plays the built-in `sentry` warrior for that round and `results.fallbacks` counts it.\n\n## The three shipped warriors\n\n`PLAYER_SCRIPTED=painter|bomber|sentry` seats one of these instead of an LLM. They are also the no-credentials fallback, which is why offline certification always completes.\n\n### painter \u2014 claim ground, turn away from walls, bomb a rival that leans in\n\n```\n# painter - claim ground, turn away from walls, bomb a rival that leans in.\nvar dx = 1\nvar dy = 0\nvar t = 0\nvar run = 0\nproc wall(ax, ay) =\n  var c = check(ax, ay)\n  return c == BOMB or c == CORPSE or who(ax, ay) != 0\nproc rival() =\n  if who(1, 0) != 0 and who(1, 0) != ID:\n    return 1\n  if who(-1, 0) != 0 and who(-1, 0) != ID:\n    return 1\n  if who(0, 1) != 0 and who(0, 1) != ID:\n    return 1\n  if who(0, -1) != 0 and who(0, -1) != ID:\n    return 1\n  return 0\nwhile true:\n  if rival() == 1 and energy() >= BOMBCOST:\n    bomb()\n  else:\n    place()\n  if wall(dx, dy):\n    t = dx\n    dx = 0 - dy\n    dy = t\n    run = 0\n  else:\n    move(dx, dy)\n    run = run + 1\n    if run == 6:\n      run = 0\n      t = dx\n      dx = 0 - dy\n      dy = t\n```\n\n### bomber \u2014 mine the ground you leave, fence yourself in\n\n```\n# bomber - mine the ground you leave, fence yourself in, paint inside the fence.\nvar dx = 1\nvar dy = 0\nvar t = 0\nvar step = 0\nwhile true:\n  step = step + 1\n  if energy() >= BOMBCOST and mod(step, 3) == 0:\n    bomb()\n  else:\n    place()\n  if check(dx, dy) == BOMB or check(dx, dy) == CORPSE or who(dx, dy) != 0:\n    t = dx\n    dx = 0 - dy\n    dy = t\n  else:\n    move(dx, dy)\n```\n\n### sentry \u2014 the always-legal fallback, and the round-1 seed script every LLM seat is shown\n\n```\n# sentry - the fallback warrior: walk a box and paint it.\nvar dx = 1\nvar dy = 0\nvar t = 0\nvar run = 0\nwhile true:\n  place()\n  if check(dx, dy) == BOMB or check(dx, dy) == CORPSE or who(dx, dy) != 0:\n    t = dx\n    dx = 0 - dy\n    dy = t\n    run = 0\n  else:\n    move(dx, dy)\n    run = run + 1\n    if run == 8:\n      run = 0\n      t = dx\n      dx = 0 - dy\n      dy = t\n```\n"
+          }
+        }
+      ]
+    }
+  },
+  "player": [
+    {
+      "id": "grid-wars-player",
+      "name": "Grid Wars Prompt Player",
+      "type": "player",
+      "description": "The reference Grid Wars policy: delivers its PLAYER_PROMPT (or a default warrior-writing strategy in words) to the game and spectates until the final frame. The game server turns the prompt into a warrior program every round. Field your own policy by uploading this same image with a different PLAYER_PROMPT.",
+      "image": "{{GRIDWARS_IMAGE}}",
+      "run": [
+        "/bin/gridwars-player"
+      ],
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "1"
+        }
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-grid-wars/tree/main"
+    },
+    {
+      "id": "grid-wars-painter",
+      "name": "Grid Wars Painter Baseline",
+      "type": "player",
+      "description": "The scripted spiral painter as a fieldable policy: registers its seat as rule-based so the game server plays the built-in painter warrior deterministically, no LLM involved. It claims every cell it stands on, turns away from walls, and bombs a rival that steps next to it.",
+      "image": "{{GRIDWARS_IMAGE}}",
+      "run": [
+        "/bin/gridwars-player"
+      ],
+      "env": {
+        "PLAYER_SCRIPTED": "painter"
+      },
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "1"
+        }
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-grid-wars/tree/main"
+    },
+    {
+      "id": "grid-wars-bomber",
+      "name": "Grid Wars Bomber Baseline",
+      "type": "player",
+      "description": "The scripted aggressive baseline: mines the ground it leaves every third action, fencing itself in and painting inside the fence. Fewer tiles than the painter, far more chain reactions.",
+      "image": "{{GRIDWARS_IMAGE}}",
+      "run": [
+        "/bin/gridwars-player"
+      ],
+      "env": {
+        "PLAYER_SCRIPTED": "bomber"
+      },
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "1"
+        }
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-grid-wars/tree/main"
+    }
+  ],
+  "variants": [
+    {
+      "id": "standard",
+      "name": "Standard game",
+      "description": "Four cogs, five rounds of 400 ticks on a 30x30 grid.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          }
+        ],
+        "num_agents": 4,
+        "rounds": 5,
+        "ticks": 400,
+        "bombCost": 12,
+        "roundDelayMs": 250,
+        "player_connect_timeout_seconds": 180
+      }
+    },
+    {
+      "id": "blitz",
+      "name": "Blitz",
+      "description": "Three fast rounds of 250 ticks; less time to iterate, more to lose.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          }
+        ],
+        "num_agents": 4,
+        "rounds": 3,
+        "ticks": 250,
+        "bombCost": 12,
+        "roundDelayMs": 150,
+        "player_connect_timeout_seconds": 180
+      }
+    }
+  ],
+  "certification": {
+    "game_config": {
+      "players": [
+        {
+          "name": "Sprocket"
+        },
+        {
+          "name": "Gizmo"
+        },
+        {
+          "name": "Ratchet"
+        },
+        {
+          "name": "Widget"
+        }
+      ],
+      "num_agents": 4,
+      "seed": 7,
+      "rounds": 2,
+      "ticks": 150,
+      "roundDelayMs": 0,
+      "player_connect_timeout_seconds": 180
+    },
+    "players": [
+      {
+        "player_id": "grid-wars-player"
+      },
+      {
+        "player_id": "grid-wars-painter"
+      },
+      {
+        "player_id": "grid-wars-player"
+      },
+      {
+        "player_id": "grid-wars-bomber"
+      }
+    ]
+  }
+}
