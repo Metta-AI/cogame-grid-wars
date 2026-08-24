@@ -3,6 +3,7 @@ var dx = 1
 var dy = 0
 var t = 0
 var run = 0
+var last = 0 - MAXFUSE
 proc wall(ax, ay) =
   var c = check(ax, ay)
   return c == BOMB or c == CORPSE or who(ax, ay) != 0
@@ -15,9 +16,26 @@ proc rival() =
     return 1
   if who(0, -1) != 0 and who(0, -1) != ID:
     return 1
+  if who(2, 0) != 0 and who(2, 0) != ID:
+    return 1
+  if who(-2, 0) != 0 and who(-2, 0) != ID:
+    return 1
+  if who(0, 2) != 0 and who(0, 2) != ID:
+    return 1
+  if who(0, -2) != 0 and who(0, -2) != ID:
+    return 1
+  if who(1, 1) != 0 and who(1, 1) != ID:
+    return 1
+  if who(1, -1) != 0 and who(1, -1) != ID:
+    return 1
+  if who(-1, 1) != 0 and who(-1, 1) != ID:
+    return 1
+  if who(-1, -1) != 0 and who(-1, -1) != ID:
+    return 1
   return 0
 while true:
-  if rival() == 1 and energy() >= BOMBCOST:
+  if rival() == 1 and energy() >= BOMBCOST and tick() - last > MAXFUSE:
+    last = tick()
     bomb()
   else:
     place()
@@ -29,7 +47,7 @@ while true:
   else:
     move(dx, dy)
     run = run + 1
-    if run == 6:
+    if run == 22:
       run = 0
       t = dx
       dx = 0 - dy

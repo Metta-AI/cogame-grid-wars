@@ -421,7 +421,13 @@ server can produce without a model.
 `parseScriptKind` maps `"1"/"true"/"yes"/"painter"` → `skPainter`, `"bomber"` → `skBomber`,
 `"sentry"` → `skSentry`, anything else → `skNone`.
 
-**`painter`** (the strong baseline; a prompt has to beat it):
+**`painter`** (the strong baseline; a prompt has to beat it). Its three free parameters — the
+turn-run length, the rival trigger distance and the bomb cadence — are the **grid harness's** pick
+(`tools/tune_painter.nim`: turn run 6..40, trigger 1 or 2 cells, cadence 3/6/12 ticks, scored over
+seeds 1..10 and again over a held-out 11..40, the configuration winning both kept). This note's
+first guess — a 6-step run with a one-cell trigger — lost to `sentry` by 3.9; the harness's pick
+(run 22, a two-cell trigger, at most one bomb per fuse) beats it by 39.7 on those ten seeds and by
+33.9 on the held-out thirty:
 
 ```
 # painter - claim ground, turn away from walls, bomb a rival that leans in.
@@ -429,6 +435,7 @@ var dx = 1
 var dy = 0
 var t = 0
 var run = 0
+var last = 0 - MAXFUSE
 proc wall(ax, ay) =
   var c = check(ax, ay)
   return c == BOMB or c == CORPSE or who(ax, ay) != 0
@@ -441,9 +448,26 @@ proc rival() =
     return 1
   if who(0, -1) != 0 and who(0, -1) != ID:
     return 1
+  if who(2, 0) != 0 and who(2, 0) != ID:
+    return 1
+  if who(-2, 0) != 0 and who(-2, 0) != ID:
+    return 1
+  if who(0, 2) != 0 and who(0, 2) != ID:
+    return 1
+  if who(0, -2) != 0 and who(0, -2) != ID:
+    return 1
+  if who(1, 1) != 0 and who(1, 1) != ID:
+    return 1
+  if who(1, -1) != 0 and who(1, -1) != ID:
+    return 1
+  if who(-1, 1) != 0 and who(-1, 1) != ID:
+    return 1
+  if who(-1, -1) != 0 and who(-1, -1) != ID:
+    return 1
   return 0
 while true:
-  if rival() == 1 and energy() >= BOMBCOST:
+  if rival() == 1 and energy() >= BOMBCOST and tick() - last > MAXFUSE:
+    last = tick()
     bomb()
   else:
     place()
@@ -455,7 +479,7 @@ while true:
   else:
     move(dx, dy)
     run = run + 1
-    if run == 6:
+    if run == 22:
       run = 0
       t = dx
       dx = 0 - dy

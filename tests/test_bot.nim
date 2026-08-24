@@ -62,24 +62,41 @@ suite "the shipped warriors":
             ## taken; the shipped warriors never do.
             check stat.refused == 0
 
+  test "painter beats the sentry fallback on mean score over ten seeds":
+    ## The note's criterion for the strong baseline (design.md:513-515):
+    ## "a baseline that cannot beat the fallback is not a partner worth
+    ## beating". painter's three free parameters — the turn-run length, the
+    ## rival trigger distance and the bomb cadence — were swept with the
+    ## grid harness in tools/tune_painter.nim (turn run 6..40, trigger 1 or
+    ## 2 cells, cadence 3/6/12 ticks), scored on these ten seeds AND on a
+    ## held-out 11..40, and the configuration that won both was kept:
+    ## run 22, a two-cell trigger, and at most one bomb per fuse.
+    var painterTotal = 0.0
+    var sentryTotal = 0.0
+    for seed in 1 .. 10:
+      let sim = play(fixture(seed),
+        [skPainter, skSentry, skPainter, skSentry])
+      painterTotal += sim.score(0) + sim.score(2)
+      sentryTotal += sim.score(1) + sim.score(3)
+    check painterTotal / 20.0 > sentryTotal / 20.0
+    ## Measured +39.7 vs -39.7; asserted well clear of a zero-sum tie.
+    check painterTotal / 20.0 > 20.0
+    ## Neither the seating nor those ten seeds carry the result: the two
+    ## seats swap and the seeds are held out.
+    var heldOut = 0.0
+    for seed in 11 .. 20:
+      let sim = play(fixture(seed),
+        [skSentry, skPainter, skSentry, skPainter])
+      heldOut += sim.score(1) + sim.score(3)
+    check heldOut / 20.0 > 20.0
+
   test "the two shipped fillers are decisively ordered over ten seeds":
     ## painter and bomber are the two FILLERS a champion is seated against
-    ## (tools/ci/policies.json). Measured over ten seeds, bomber beats
-    ## painter by a wide margin: its roaming bomb wall reaches the painter's
-    ## six-cell box and kills it, and a kill is worth 50 plus the 100
-    ## survival bonus the dead warrior loses, which dwarfs painter's
-    ## twelve-tile edge.
-    ##
-    ## NOT asserted, deliberately: the design note claims painter is the
-    ## strong baseline and beats `sentry`. With the note's VERBATIM scripts
-    ## it does not, and cannot — painter turns every 6 steps and paints a
-    ## 24-cell box, sentry turns every 8 and paints 32, and painter's extra
-    ## behaviour (bomb a rival that leans in) never fires because nothing
-    ## leans in. Measured over ten seeds: sentry +3.9 vs painter -3.9, and
-    ## sentry +12.0 vs bomber -12.0. sentry is only ever the FALLBACK and is
-    ## never seated as a filler, so no league episode is affected; the
-    ## discrepancy is reported as a design-note defect rather than papered
-    ## over by a weaker assertion here.
+    ## (tools/ci/policies.json). Measured over ten seeds, bomber still beats
+    ## the tuned painter: its roaming bomb wall reaches painter's box and
+    ## kills it, and a kill is worth 50 plus the 100 survival bonus the dead
+    ## warrior loses. The gap is much smaller than it was against the
+    ## note's untuned painter (-30.8), which is the point of the tuning.
     var painterTotal = 0.0
     var bomberTotal = 0.0
     for seed in 1 .. 10:
@@ -90,6 +107,7 @@ suite "the shipped warriors":
     check bomberTotal / 20.0 > painterTotal / 20.0
     ## And the gap is real, not noise on a zero-sum tie.
     check bomberTotal / 20.0 - painterTotal / 20.0 > 10.0
+
 
   test "decideAll with no credentials is scripted and never touches the network":
     let sim = initSim(fixture(3))
