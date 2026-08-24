@@ -8,9 +8,10 @@
 // bar and the code pane).
 //
 // Fed by three drivers: the live /global websocket, the live /player
-// websocket, and replay (from the game's /replay websocket or the static
-// wasm bundle). All state derivation happens server-side / wasm-side; this
-// file only draws frame objects:
+// websocket, and replay (from the static wasm bundle, which is the only
+// thing that plays a recorded episode — there is no replay pod). All state
+// derivation happens server-side / wasm-side; this file only draws frame
+// objects:
 //   {seats:[{name,seat,color,id,score,raw,tiles,peakTiles,energy,alive,x,y,
 //            idle,kills,selfKills,line,action,banner,deathCause,faultLine,
 //            faultText,origin,scriptLines,pending} x4 by SEAT],

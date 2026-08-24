@@ -4,13 +4,16 @@
 ##   GET /healthz                    - liveness
 ##   GET /client/global              - spectator page
 ##   GET /client/player              - player page (view-only; policies are prompts)
-##   GET /client/replay              - replay page (replay mode)
 ##   GET /client/renderer.js         - shared arena renderer
 ##   GET /client/chrome.css          - shared chrome
 ##   GET /client/assets/<name>       - sprites and fonts
 ##   WS  /player?slot=N&token=T      - player protocol (prompt delivery)
 ##   WS  /global                     - spectator snapshots
-##   WS  /replay                     - replay payload (replay mode)
+##
+## There is NO replay route and no replay mode: a recorded episode is played
+## by the STATIC wasm bundle the manifest declares
+## (`game.replay_viewer.bundle`), which reads the `.replay` file from S3 and
+## re-derives every frame in the browser. This server never serves a replay.
 ##
 ## Every route is registered BEFORE any catch-all asset route, because
 ## hosted certification probes /healthz, GET /client/player?slot=0&token=T,
@@ -65,7 +68,6 @@ var
   stateLock: Lock
   state: GameState
   gameServer: Server
-  replayPayloadGlobal: string
 
 initLock(stateLock)
 
@@ -387,12 +389,6 @@ proc globalUpgradeHandler(request: Request) {.gcsafe.} =
       state.globalSockets.incl(websocket)
       websocket.send($state.snapshotJson())
 
-proc replayUpgradeHandler(request: Request) {.gcsafe.} =
-  {.gcsafe.}:
-    let websocket = request.upgradeToWebSocket()
-    if replayPayloadGlobal.len > 0:
-      websocket.send(replayPayloadGlobal)
-
 proc websocketHandler(
   websocket: WebSocket,
   event: WebSocketEvent,
@@ -446,55 +442,15 @@ proc websocketHandler(
             state.playerSockets.del(slot)
         state.globalSockets.excl(websocket)
 
-proc buildRouter(replayMode: bool): Router =
+proc buildRouter(): Router =
   result.get("/healthz", healthzHandler)
   result.get("/client/global", htmlHandler("global.html"))
   result.get("/client/player", htmlHandler("player.html"))
-  result.get("/client/replay", htmlHandler("replay.html"))
   result.get("/client/renderer.js", rendererHandler)
   result.get("/client/chrome.css", chromeCssHandler)
   result.get("/client/assets/@name", assetHandler)
   result.get("/global", globalUpgradeHandler)
-  result.get("/replay", replayUpgradeHandler)
-  if not replayMode:
-    result.get("/player", playerUpgradeHandler)
-
-proc configFromReplay*(payload: JsonNode): GameConfig =
-  result = defaultGameConfig()
-  result.rounds = payload["config"]{"rounds"}.getInt(5)
-  result.ticks = payload["config"]{"ticks"}.getInt(400)
-  result.bombCost = payload["config"]{"bombCost"}.getInt(12)
-  result.seed = payload["config"]{"seed"}.getBiggestInt(0)
-  ## The replay carries the episode's fitted caps; never re-fit them.
-  result.sampled = true
-  for name in payload["names"]:
-    result.players.add(PlayerConfig(name: name.getStr()))
-
-proc runReplayServer*(runtimeConfig: RuntimeConfig) =
-  let payload = parseJson(runtimeConfig.replay)
-  let config = configFromReplay(payload)
-  var events: seq[GameEvent]
-  for node in payload["events"]:
-    events.add(eventFromJson(node))
-  var frames = newJArray()
-  for frame in replayMatch(config, events):
-    frames.add(frame)
-  replayPayloadGlobal = $ %*{
-    "type": "replay",
-    "protocol": payload{"protocol"}.getStr("gridwars.replay.v1"),
-    "names": payload["names"],
-    "policyNames": payload{"policyNames"},
-    "config": payload["config"],
-    "events": payload["events"],
-    "results": payload{"results"},
-    "frames": frames
-  }
-
-  let router = buildRouter(replayMode = true)
-  gameServer = newServer(router, websocketHandler)
-  echo "grid-wars: replay mode on ", runtimeConfig.host, ":",
-    runtimeConfig.port
-  gameServer.serve(Port(runtimeConfig.port), runtimeConfig.host)
+  result.get("/player", playerUpgradeHandler)
 
 proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
   if config.tokens.len != config.players.len:
@@ -504,7 +460,7 @@ proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
   state.prompts = newSeq[string](config.players.len)
   state.scripted = newSeq[ScriptKind](config.players.len)
 
-  let router = buildRouter(replayMode = false)
+  let router = buildRouter()
   gameServer = newServer(router, websocketHandler)
   createThread(gameThread, runGame, runtimeConfig)
   echo "grid-wars: serving on ", runtimeConfig.host, ":", runtimeConfig.port

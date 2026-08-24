@@ -89,8 +89,10 @@ suite "chrome.css":
     check "#loading { bottom: var(--band); }" in css
 
 suite "the pages":
-  test "both replay pages keep every starter element and add exactly two":
-    for page in ["client/replay.html", "replay-viewer/index.html"]:
+  test "the static replay page keeps every starter element and adds exactly two":
+    ## One replay page only: the pod's `/client/replay` page is gone, so
+    ## the bundle's index.html is the whole replay surface.
+    for page in ["replay-viewer/index.html"]:
       let html = readRepo(page)
       for id in StarterIds:
         check ("id=\"" & id & "\"") in html
@@ -105,6 +107,19 @@ suite "the pages":
       check "--band" in html
       check "--hudscale" in html
       check "offsetHeight" in html
+
+  test "there is no /client/replay pod path anywhere":
+    ## Recorded episodes are played by the STATIC bundle from S3. A pod
+    ## replay page, its route or its websocket would be a second viewer
+    ## the platform must never be pointed at.
+    check not fileExists(RepoDir / "client" / "replay.html")
+    for path in ["src/gridwars.nim", "src/gridwars/server.nim",
+        "client/global.html", "client/player.html", "client/renderer.js",
+        "coworld_manifest_template.json"]:
+      check "/client/replay" notin readRepo(path)
+    let server = readRepo("src/gridwars/server.nim")
+    check "\"/replay\"" notin server
+    check "replay.html" notin server
 
   test "the live pages carry the same two additions":
     for page in ["client/global.html", "client/player.html"]:
@@ -130,7 +145,7 @@ suite "the pages":
     ## The arena is fixed — 30x30, always rescaled whole into the canvas —
     ## so the starter's zoom bar and minimap would be dead weight.
     for path in ["client/chrome.css", "client/renderer.js",
-        "client/replay.html", "client/global.html", "client/player.html",
+        "client/global.html", "client/player.html",
         "replay-viewer/index.html", "replay-viewer/static_replay.js"]:
       check "viewpanel" notin readRepo(path)
       check "minimap" notin readRepo(path)

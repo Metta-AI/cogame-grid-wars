@@ -1,5 +1,7 @@
-## Grid Wars entrypoint: reads the Coworld runtime contract and starts
-## either a live episode server or a replay viewer server.
+## Grid Wars entrypoint: reads the Coworld runtime contract and starts the
+## live episode server. A recorded episode is NOT played by this container:
+## the manifest declares the static wasm replay viewer bundle, which reads
+## the `.replay` file from S3 and re-derives every frame in the browser.
 
 import
   std/[json, sysrand],
@@ -27,7 +29,9 @@ when isMainModule:
   let runtimeConfig = readRuntimeConfig()
 
   if runtimeConfig.replayMode:
-    runReplayServer(runtimeConfig)
+    ## No pod plays replays. The static bundle does, from S3.
+    quit("grid-wars: replay mode is not served by this container; the " &
+      "static replay viewer bundle plays recorded episodes", 1)
   else:
     var config = defaultGameConfig()
     config.update(runtimeConfig.config)

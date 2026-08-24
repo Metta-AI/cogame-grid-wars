@@ -66,7 +66,8 @@ your prompt has to write against, plus the three shipped warriors.
 
 ## Layout
 
-- `src/gridwars.nim` — entrypoint (Coworld runtime contract, live vs replay mode)
+- `src/gridwars.nim` — entrypoint (Coworld runtime contract, the live episode
+  server; replays are the static bundle, never a pod)
 - `src/gridwars/gwl.nim` — the warrior language: lexer, parser, compiler to
   a flat op array, and the resumable VM. Pure, integer-only, no IO — the
   only file that knows about syntax
@@ -75,7 +76,7 @@ your prompt has to write against, plus the three shipped warriors.
   module and nothing else
 - `src/gridwars/llm.nim` — Claude client (one parallel batch per round),
   prompts, tolerant reply parsing, and the three scripted warriors
-- `src/gridwars/server.nim` — mummy HTTP/WS server (player, global, replay)
+- `src/gridwars/server.nim` — mummy HTTP/WS server (player, global)
 - `src/gridwars_player.nim` — the prompt-delivery player (`PLAYER_PROMPT` /
   `PLAYER_SCRIPTED` env)
 - `client/` — the inherited bullwhip broadcast chrome plus one appended
