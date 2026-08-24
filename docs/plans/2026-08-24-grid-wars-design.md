@@ -143,7 +143,7 @@ short-circuit. Booleans are a distinct type: `if 1:` is a type fault.
 
 | Call | Returns |
 |---|---|
-| `check(dx, dy)` | `BOMB` (−1) if the cell holds a live bomb; else `CORPSE` (−2) if it holds a corpse; else `FOG` (−3) if `abs(dx) > 4 or abs(dy) > 4`; else the **tile owner** id 1..4, or `EMPTY` (0) |
+| `check(dx, dy)` | `FOG` (−3) **first** if `abs(dx) > 4 or abs(dy) > 4` — partial observability wins over everything, so a bomb outside the 9×9 window reads `FOG`, not `BOMB`; else `BOMB` (−1) if the cell holds a live bomb; else `CORPSE` (−2) if it holds a corpse; else the **tile owner** id 1..4, or `EMPTY` (0) |
 | `who(dx, dy)` | id 1..4 of the **living warrior standing** on that cell, else 0; `FOG` beyond the 9×9 window |
 | `x()`, `y()` | own coordinates, 0..29 |
 | `tiles()`, `energy()`, `tick()` | own tile count, own energy, current tick index (0-based) |
