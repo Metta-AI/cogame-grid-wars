@@ -180,8 +180,18 @@ jobs:
         # SMOKE_SLUG is passed explicitly so the workflow's SLUG is the single
         # source for the game/player entrypoint names; the script's own
         # scaffold-substituted default is only a fallback.
+        #
+        # The entrypoints are named for the COMPOSE SERVICE, not the slug:
+        # `coworld build` derives the manifest image placeholder from the
+        # service name, so the service is `gridwars` (no hyphen) while the
+        # slug is `grid-wars`. The smoke's `/bin/<slug>` default is therefore
+        # wrong here and both binaries are named explicitly. The player
+        # entrypoint also comes from the manifest per slot; this is its
+        # fallback.
         env:
           SMOKE_SLUG: ${{ env.SLUG }}
+          SMOKE_GAME_BIN: /bin/gridwars
+          SMOKE_PLAYER_BIN: /bin/gridwars-player
         run: ./tools/ci/docker_smoke.sh "${IMAGE}:ci"
 
       # The replay this episode produced is the ONLY replay in CI that is
