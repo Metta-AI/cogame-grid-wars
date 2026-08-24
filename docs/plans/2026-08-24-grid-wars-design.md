@@ -1093,9 +1093,14 @@ transport — all four readable at 360 px. Numbers are rendered as numbers (`214
 
 ## Tests
 
-`tests/` runs under `nimble test` in `ci.yml`'s `build-test` job (the sandbox cannot run any of this
-locally — CI is the only harness). The smoke job **`needs:` the build job** and never reuses a
-cached binary: a stale binary cost bullwhip an hour on 2026-08-22.
+`tests/` runs in `ci.yml`'s **`test`** job, which is the coworld-builder template's job verbatim
+(§*Packaging* pins `ci.yml` to `templates/`): every `tests/*.nim` is compiled and run **twice**, in
+debug and in `-d:release`, rather than through `nimble test` — release-only codegen bugs and
+debug-only check failures are both worth catching. `docker-smoke` does not `needs:` it; instead it
+**builds the production image from source inside its own job** and runs the episode in that image,
+so it can never reuse a stale binary (the failure a `needs:` would have prevented; a stale binary
+cost bullwhip an hour on 2026-08-22). `wasm-viewer` **does** `needs: docker-smoke`, because it
+loads the replay that job produced.
 
 **`tests/test_gwl.nim` — the language.** Lexing and indentation errors (odd indent, unopened
 dedent) report the right line; every statement form parses and runs; `and`/`or` short-circuit;
