@@ -152,7 +152,10 @@ short-circuit. Booleans are a distinct type: `if 1:` is a type fault.
 | `abs(a)`, `min(a,b)`, `max(a,b)`, `len(a)`, `xor(a,b)`, `shl(a,b)`, `shr(a,b)` | as named, integer |
 
 **Constants:** `BOMB` = −1, `CORPSE` = −2, `FOG` = −3, `EMPTY` = 0, `ID` = own warrior id,
-`gridSize` = 30, `MAXFUSE` = 5, `BOMBCOST` = 12.
+`gridSize` = 30, `MAXFUSE` = 5, `BOMBCOST` = **this episode's `bombCost`** (default 12, config
+0..60). `BOMBCOST` is read from the config rather than frozen at 12 so that a warrior written
+against it stays correct when the knob moves: `energy() >= BOMBCOST` is the test every shipped
+warrior makes before it bombs, and a literal 12 would refuse or overspend on any other setting.
 
 **Actions.** `move(dx, dy)` is a **single step**: `dx, dy ∈ {−1, 0, 1}`, not both 0. Any other offset
 is an **illegal action** — the tick is spent, nothing happens, `illegal` is incremented and an
