@@ -950,9 +950,12 @@ proc submit*(sim: var Sim, seat: int, lines: seq[string],
   sim.scripts[seat] = script
   sim.origin[seat] = (if origin.len > 0: origin else: "llm")
   sim.compileError[seat] = compileError
+  ## `banner` and `notes` are BOTH overwritten by every submission: a reply
+  ## that carries neither leaves the seat with neither ("banner/notes
+  ## missing => empty"). Keeping last round's notes because this round's
+  ## reply omitted them would feed a seat text it did not write this round.
   sim.banner[seat] = cutRunes(banner.replace("\n", " ").strip(), MaxBannerLen)
-  if notes.len > 0:
-    sim.notes[seat] = cutRunes(notes.strip(), MaxNotesLen)
+  sim.notes[seat] = cutRunes(notes.strip(), MaxNotesLen)
   sim.pending[seat] = false
   var event = blankEvent(evSubmit)
   event.round = sim.round

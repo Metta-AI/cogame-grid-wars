@@ -401,6 +401,21 @@ suite "endings and determinism":
         check a.history[index].digest == b.history[index].digest
         check a.history[index].ascii == b.history[index].ascii
 
+  test "a reply with no notes clears them; it never carries last round's":
+    ## design.md:371 — "banner/notes missing => empty". Both fields are
+    ## overwritten by every submission, so a seat is never fed text it did
+    ## not write this round.
+    var sim = initSim(fixture(seed = 2, rounds = 2, ticks = 40))
+    for seat in sim.pendingSeats():
+      sim.submit(seat, lines(EastWalker), "round one notes",
+        "round one banner", "llm")
+    check sim.history[0].notes[0] == "round one notes"
+    check sim.history[0].banner[0] == "round one banner"
+    for seat in sim.pendingSeats():
+      sim.submit(seat, lines(EastWalker), "", "", "llm")
+    check sim.history[1].notes[0] == ""
+    check sim.history[1].banner[0] == ""
+
   test "a script that does not compile is recorded, not fatal":
     var sim = initSim(fixture(seed = 1, rounds = 1, ticks = 60))
     sim.submit(0, @["this is not GWL at all ###"], "", "", "llm")
