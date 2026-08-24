@@ -19,8 +19,14 @@
 # env:
 #   SMOKE_IMAGE                image, if not given as $1        (coworld-grid-wars:ci)
 #   SMOKE_SLUG                 game slug                        (grid-wars)
-#   SMOKE_GAME_BIN             game entrypoint                  (/bin/grid-wars)
-#   SMOKE_PLAYER_BIN           player entrypoint                (/bin/grid-wars-player)
+#   SMOKE_GAME_BIN             game entrypoint                  (/bin/gridwars)
+#   SMOKE_PLAYER_BIN           player entrypoint                (/bin/gridwars-player)
+#                              NOT slug-derived: the entrypoints are named
+#                              for the COMPOSE SERVICE (`gridwars`, no
+#                              hyphen -- `coworld build` derives the image
+#                              placeholder from it), while the slug is
+#                              `grid-wars`. Dockerfile:57-58 installs
+#                              /bin/gridwars and /bin/gridwars-player.
 #   SMOKE_MANIFEST             manifest template path           (coworld_manifest_template.json)
 #   SMOKE_SEATS                seat-count CROSS-CHECK           (4)
 #                              must agree with the manifest fixture; it is
@@ -48,8 +54,8 @@ repo_dir="$(cd "${script_dir}/../.." && pwd)"
 
 image="${1:-${SMOKE_IMAGE:-coworld-grid-wars:ci}}"
 slug="${SMOKE_SLUG:-grid-wars}"
-game_bin="${SMOKE_GAME_BIN:-/bin/${slug}}"
-player_bin="${SMOKE_PLAYER_BIN:-/bin/${slug}-player}"
+game_bin="${SMOKE_GAME_BIN:-/bin/gridwars}"
+player_bin="${SMOKE_PLAYER_BIN:-/bin/gridwars-player}"
 manifest="${SMOKE_MANIFEST:-${repo_dir}/coworld_manifest_template.json}"
 seats_expected="${SMOKE_SEATS:-4}"
 port="${SMOKE_PORT:-8080}"
