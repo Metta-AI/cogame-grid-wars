@@ -222,6 +222,36 @@ suite "re-derivation":
           break
       check mismatch == -1
 
+  test "the live snapshot is the tail frame, built from the last round only":
+    ## The live snapshot used to re-run EVERY battle played so far and
+    ## build ~400 JSON frames per round to return ONE frame — work
+    ## proportional to rounds^2, paid on every round boundary and on every
+    ## /global connect. It now builds the last round's frames only. The
+    ## frame must be the same frame: the earlier rounds still contribute
+    ## their series row and their share of the running score, which is what
+    ## the scorebug and the series table read.
+    var sim = initSim(fixture(9, rounds = 3, ticks = 90))
+    let kinds = [skPainter, skBomber, skSentry, skPainter]
+    var played = 0
+    while not sim.done:
+      for seat in sim.pendingSeats():
+        let submission = scriptedSubmission(kinds[seat])
+        sim.submit(seat, submission.script, submission.notes,
+          submission.banner, submission.origin)
+      inc played
+      let full = sim.frameStates()
+      let live = sim.liveStateJson()
+      check live["series"].len == played
+      for key in ["series", "grid", "bombs", "corpses", "blast", "tick",
+          "focus", "ticks"]:
+        check $live[key] == $full[^1][key]
+      for seat in 0 ..< Seats:
+        ## Everything the battle decided; `pending` is the live overlay and
+        ## is the only field the snapshot rewrites.
+        for key in ["name", "score", "raw", "tiles", "peakTiles", "energy",
+            "alive", "x", "y", "kills", "selfKills", "deathCause"]:
+          check $live["seats"][seat][key] == $full[^1]["seats"][seat][key]
+
   test "frames carry a keyframe grid, deltas, bombs, corpses and scripts":
     let sim = playScripted(fixture(6, rounds = 1, ticks = 120))
     let frames = sim.frameStates()

@@ -1046,14 +1046,30 @@ proc resultsJson*(sim: Sim): JsonNode =
 
 proc buildFrames(config: GameConfig, names: seq[string],
     records: seq[RoundRecord], rounds: int, done: bool,
-    reason: string): seq[JsonNode] =
+    reason: string, fromRound = 1): seq[JsonNode] =
+  ## Frames are built for rounds `fromRound .. records.len`. An earlier
+  ## round contributes only its series row and its share of the running
+  ## score — both already in the record it left behind — so it is neither
+  ## replayed nor turned into ~400 JSON frames nobody reads. The live
+  ## snapshot wants one frame; without this it paid for every battle
+  ## played so far, on every round boundary and every /global connect.
   var sink = FrameSink(want: true, names: names, rounds: rounds)
   for index in 0 ..< records.len:
+    if index + 1 < fromRound:
+      var row: seq[SeatStat]
+      for seat in 0 ..< Seats:
+        row.add(records[index].stat[seat])
+      sink.series.add(row)
+      inc sink.roundsPlayed
+      for seat in 0 ..< Seats:
+        var total = 0.0
+        for played in sink.series:
+          total += played[seat].roundScore
+        sink.seriesScore[seat] = total / sink.roundsPlayed.float
+      continue
     var record = records[index]
     sink.round = index + 1
     runBattle(record, config, sink)
-  if result.len == 0:
-    discard
   result = sink.frames
   if result.len > 0 and done:
     result[^1]["gameDone"] = %true
@@ -1072,8 +1088,13 @@ proc framesJson*(sim: Sim): JsonNode =
 proc liveStateJson*(sim: Sim): JsonNode =
   ## The live spectator snapshot: the same frame shape the replay viewer
   ## reads, so one renderer serves both. It is the tail of the completed
-  ## rounds with the live round's pending flags laid over it.
-  let frames = sim.frameStates()
+  ## rounds with the live round's pending flags laid over it. Only the
+  ## LAST round's frames are built — the tail frame is the same node
+  ## either way, and the earlier rounds are already summarised in their
+  ## records.
+  let frames = buildFrames(sim.config, sim.names, sim.history,
+    sim.config.rounds, sim.done, sim.reason,
+    fromRound = max(sim.history.len, 1))
   if frames.len > 0:
     result = frames[^1]
   else:
