@@ -464,7 +464,7 @@ proc configFromReplay*(payload: JsonNode): GameConfig =
   result.rounds = payload["config"]{"rounds"}.getInt(5)
   result.ticks = payload["config"]{"ticks"}.getInt(400)
   result.bombCost = payload["config"]{"bombCost"}.getInt(12)
-  result.seed = payload["config"]{"seed"}.getInt(0)
+  result.seed = payload["config"]{"seed"}.getBiggestInt(0)
   ## The replay carries the episode's fitted caps; never re-fit them.
   result.sampled = true
   for name in payload["names"]:

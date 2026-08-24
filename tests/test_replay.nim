@@ -140,6 +140,49 @@ suite "re-derivation":
         check record.digest == sim.history[index].digest
         check record.seed == sim.history[index].seed
 
+  test "a league-sized seed survives the log and stays load-bearing":
+    ## An unpinned seed is a random 31-bit number, so the derived round seed
+    ## (`seed * 1000003 + round * 97`) runs to 2^51. It is written into the
+    ## `round` event and read back by the server AND by the wasm viewer,
+    ## where Nim's `int` is 32 bits — so every seed on the path is int64 and
+    ## the number that comes back is the number that went out.
+    let config = fixture(2147483647, rounds = 1, ticks = 60)
+    var sim = initSim(config)
+    check sim.roundSeed(1) > int64(high(int32))
+    ## A warrior whose every move comes out of its rand() stream, so the
+    ## seed decides the board.
+    let dice = @[
+      "while true:",
+      "  var r = rand(4)",
+      "  if r == 0:",
+      "    place()",
+      "  elif r == 1:",
+      "    move(1, 0)",
+      "  elif r == 2:",
+      "    move(0, 1)",
+      "  else:",
+      "    bomb()"
+    ]
+    for seat in sim.pendingSeats():
+      sim.submit(seat, dice, "", "", "llm")
+    check sim.done
+    var events: seq[GameEvent]
+    for node in sim.replayJson()["events"]:
+      events.add(eventFromJson(node))
+    for event in events:
+      if event.kind == evRound:
+        check event.seed == sim.history[event.round - 1].seed
+        check event.seed > int64(high(int32))
+    ## Re-derivation from the logged seed reproduces the recorded digest.
+    discard replayMatch(sim.config, events)
+    ## And the seed is load-bearing: cut to 32 bits — what a platform `int`
+    ## would have done in the browser — it is a different battle.
+    var truncated = sim.history[0]
+    truncated.seed = int64(cast[int32](sim.history[0].seed))
+    check truncated.seed != sim.history[0].seed
+    playRound(truncated, sim.config)
+    check truncated.digest != sim.history[0].digest
+
   test "a tampered digest is caught":
     let sim = playScripted(fixture(4, rounds = 1, ticks = 60))
     var events: seq[GameEvent]

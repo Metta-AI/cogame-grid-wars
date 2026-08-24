@@ -32,7 +32,7 @@ proc gwLoadReplay(data: ptr uint8, length: cint): cint
     config.rounds = replay["config"]{"rounds"}.getInt(5)
     config.ticks = replay["config"]{"ticks"}.getInt(400)
     config.bombCost = replay["config"]{"bombCost"}.getInt(12)
-    config.seed = replay["config"]{"seed"}.getInt(0)
+    config.seed = replay["config"]{"seed"}.getBiggestInt(0)
     config.sampled = true
     for name in replay["names"]:
       config.players.add(PlayerConfig(name: name.getStr()))

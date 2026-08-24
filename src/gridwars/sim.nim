@@ -69,7 +69,7 @@ type
     bombs*: seq[Bomb]              ## kept sorted by y*30+x
 
   RoundRecord* = object
-    seed*: int
+    seed*: int64
     spawn*: array[Seats, int]      ## seat -> spawn cell index
     scripts*: array[Seats, seq[string]]
     origin*: array[Seats, string]  ## "llm" | "retry" | "fallback" | "scripted"
@@ -104,11 +104,23 @@ type
 
 # ---- Setup ------------------------------------------------------------------
 
-proc tableNames*(players: seq[PlayerConfig], seed: int): seq[string] =
+proc mixSeed*(seed: int64, multiplier, addend: uint64): int64 =
+  ## Seed mixing is done in uint64 and masked back into the non-negative
+  ## half. Two reasons, and both of them bite: signed overflow is a Defect
+  ## in Nim even under -d:release, and an unpinned league seed (up to 2^31,
+  ## `randomSeed`) times these multipliers overflows int64; and a wrapping
+  ## uint64 multiply is the one form of the arithmetic that is identical on
+  ## x86-64 and on wasm32, where the viewer re-derives the same battle.
+  ## Below the overflow point the value is exactly what the plain multiply
+  ## gave, so every replay recorded before this stays valid.
+  cast[int64]((cast[uint64](seed) * multiplier + addend) and
+    0x7FFF_FFFF_FFFF_FFFF'u64)
+
+proc tableNames*(players: seq[PlayerConfig], seed: int64): seq[string] =
   ## Policy display names never reach the arena: every seat plays under an
   ## anonymous cog name, drawn deterministically from the seed so replays
   ## and the live board agree.
-  var rng = initRand(int64(seed) * 6779 + 31)
+  var rng = initRand(mixSeed(seed, 6779'u64, 31'u64))
   var pool = @CogNames
   rng.shuffle(pool)
   for index in 0 ..< players.len:
@@ -130,14 +142,16 @@ proc sampleEpisode*(config: GameConfig): GameConfig =
     min(config.roundDelayMs, PacingBudgetMs div max(result.rounds, 1))
   result.sampled = true
 
-proc roundSeed*(sim: Sim, round: int): int =
+proc roundSeed*(sim: Sim, round: int): int64 =
   ## The round's derived seed. It is logged in the `round` event, which is
-  ## what makes the engine RNG server-side AND auditable.
-  sim.config.seed * 1000003 + round * 97
+  ## what makes the engine RNG server-side AND auditable. int64: with a
+  ## league seed of up to 2^31 this is up to 2^51, which a platform `int`
+  ## cannot hold in the wasm viewer that reads the same number back.
+  mixSeed(sim.config.seed, 1000003'u64, uint64(round) * 97'u64)
 
-proc spawnFor(seed: int): array[Seats, int] =
+proc spawnFor(seed: int64): array[Seats, int] =
   ## A seeded permutation of the four fixed corners, seat -> cell index.
-  var rng = initRand(int64(seed) * 2654435761 + 12345)
+  var rng = initRand(mixSeed(seed, 2654435761'u64, 12345'u64))
   var order = @[0, 1, 2, 3]
   rng.shuffle(order)
   for seat in 0 ..< Seats:
@@ -1149,7 +1163,7 @@ proc eventFromJson*(node: JsonNode): GameEvent =
     kind: parseEnum[EventKind](node["kind"].getStr()),
     round: node{"round"}.getInt(-1),
     seat: node{"seat"}.getInt(-1),
-    seed: node{"seed"}.getInt(-1),
+    seed: node{"seed"}.getBiggestInt(-1),
     ticks: node{"ticks"}.getInt(-1),
     lines: node{"lines"}.getInt(-1),
     origin: node{"origin"}.getStr(""),

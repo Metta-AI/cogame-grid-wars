@@ -12,7 +12,7 @@ type
   GameConfig* = object
     tokens*: seq[string]
     players*: seq[PlayerConfig]
-    seed*: int
+    seed*: int64          ## int64, not platform int: the wasm viewer reads it too
     rounds*: int          ## script-submission rounds in the series
     ticks*: int           ## ticks in one battle
     bombCost*: int        ## energy a bomb() costs
@@ -57,7 +57,7 @@ type
     kind*: EventKind
     round*: int              ## round/submit/battle: the round; end: rounds played
     seat*: int               ## submit: the submitting seat; -1 otherwise
-    seed*: int               ## round: the round's derived seed; -1 otherwise
+    seed*: int64             ## round: the round's derived seed; -1 otherwise
     spawn*: seq[int]         ## round: seat -> spawn cell index
     ticks*: int              ## round: ticks in this battle; -1 otherwise
     script*: seq[string]     ## submit: the capped source lines
@@ -103,7 +103,7 @@ proc update*(config: var GameConfig, configJson: string) =
     for player in node["players"]:
       config.players.add(PlayerConfig(name: player["name"].getStr()))
   if node.hasKey("seed"):
-    config.seed = node["seed"].getInt()
+    config.seed = node["seed"].getBiggestInt()
   if node.hasKey("rounds"):
     config.rounds = node["rounds"].getInt()
   if node.hasKey("ticks"):

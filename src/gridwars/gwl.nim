@@ -1051,7 +1051,7 @@ proc compile*(lines: seq[string]): GwlProgram =
 
 # ---- VM ---------------------------------------------------------------------
 
-proc newVm*(program: GwlProgram, seat, seed: int): GwlVm =
+proc newVm*(program: GwlProgram, seat: int, seed: int64): GwlVm =
   ## `seed` is the round's derived seed; the warrior's `rand` stream is
   ## seeded `seed + seat`, i.e. `config.seed * 1000003 + round * 97 + seat`.
   result = GwlVm(
@@ -1063,7 +1063,7 @@ proc newVm*(program: GwlProgram, seat, seed: int): GwlVm =
   )
   for index in 0 ..< result.arraySlot.len:
     result.arraySlot[index] = -1
-  var state = uint64(seed + seat)
+  var state = cast[uint64](seed) + uint64(seat)
   if state == 0:
     state = 0x9E3779B97F4A7C15'u64
   result.rng = state
