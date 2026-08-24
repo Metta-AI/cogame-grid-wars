@@ -35,6 +35,15 @@ suite "the shipped warriors":
       let program = compile(source)
       check program.ops.len > 0
 
+  test "the round-1 seed script IS the sentry warrior":
+    ## design.md:487 makes them one object: "the always-legal fallback, and
+    ## the round-1 seed script". They live in two places — `SeedScript`
+    ## (sim.nim, the literal every LLM seat is shown in round 1) and
+    ## `data/warriors/sentry.gwl` (staticRead, the fallback) — and nothing
+    ## tied the copies together, so an edit to one would silently show a
+    ## seat a script the fallback does not play.
+    check SeedScript == warriorLines(skSentry)
+
   test "four seats of each play whole episodes cleanly and fast":
     for kind in [skPainter, skBomber, skSentry]:
       var seats: array[Seats, ScriptKind]
