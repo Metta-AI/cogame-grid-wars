@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Grid Wars — Replay</title>
+<link rel="stylesheet" href="./chrome.css">
+</head>
+<body>
+<div id="layout">
+  <div id="stage">
+    <div id="topband">
+      <div id="wordmark">GRID<span>WARS</span></div>
+      <div id="clock">R0 / 0</div>
+      <div id="topright">
+        <span id="statuschip">replay</span>
+        <button id="feedtoggle">LOG »</button>
+      </div>
+    </div>
+    <div id="scorebug"></div>
+    <div id="terrbar"></div>
+    <div id="board-wrap">
+      <canvas id="table" width="960" height="640"></canvas>
+      <div id="lightpool"></div>
+      <div id="grain"></div>
+      <div id="endscreen"></div>
+    </div>
+    <div id="transport">
+      <div class="scrub" id="scrub"></div>
+      <div class="tbar">
+        <button class="tbtn" id="play">❚❚</button>
+        <span class="tpos" id="pos">0 / 0</span>
+      </div>
+    </div>
+    </div>
+  <div id="codepane"></div>
+  <div id="feed"></div>
+</div>
+<div id="loading">LOADING REPLAY…</div>
+<script src="./renderer.js"></script>
+<script src="./gridwars_replay.js"></script>
+<script src="./static_replay.js"></script>
+<script>
+  var canvas = document.getElementById("table");
+  function fit() {
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
+  }
+  // --band and --hudscale live on :root so nothing has to guess the
+  // transport's height: the endcard stops at var(--band) and the caption
+  // sits above it. fit() is called from here too, so the canvas and the
+  // custom properties can never disagree.
+  function relayout() {
+    var transport = document.getElementById("transport");
+    var band = transport ? transport.offsetHeight : 0;
+    var root = document.documentElement;
+    root.style.setProperty("--band", band + "px");
+    root.style.setProperty("--hudscale",
+      String(Math.max(0.8, Math.min(1.15, window.innerWidth / 960))));
+    fit();
+  }
+  window.addEventListener("resize", relayout);
+  window.addEventListener("load", relayout);
+  relayout();
+  GridWarsRenderer.bindFeedToggle(document.getElementById("feedtoggle"), true);
+  document.getElementById("feedtoggle").addEventListener("click", relayout);
+  // attach happens in static_replay.js once the wasm module loads
+</script>
+</body>
+</html>
