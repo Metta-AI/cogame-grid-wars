@@ -211,7 +211,16 @@ suite "re-derivation":
         events.add(eventFromJson(node))
       let replayed = replayMatch(sim.config, events)
       check replayed.len == frames.len
-      check $replayed[^1] == $frames[^1]
+      ## FRAME BY FRAME, not just the tail: the viewer draws every one of
+      ## these, so every one of them has to be the state the server
+      ## recorded. A digest per round proves the board; this proves the
+      ## whole per-tick timeline the browser actually renders.
+      var mismatch = -1
+      for index in 0 ..< min(replayed.len, frames.len):
+        if $replayed[index] != $frames[index]:
+          mismatch = index
+          break
+      check mismatch == -1
 
   test "frames carry a keyframe grid, deltas, bombs, corpses and scripts":
     let sim = playScripted(fixture(6, rounds = 1, ticks = 120))
