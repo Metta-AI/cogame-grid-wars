@@ -281,8 +281,10 @@ proc systemPrompt*(sim: Sim, seat: int): string =
 - You start with 12 energy and gain 1 + tiles div 60 each tick, capped at
   60. bomb() costs BOMBCOST energy. A live bomb is a WALL as well as a
   weapon: nobody can walk into it.
-- A bomb detonates 5 ticks after it is planted, in a plus of 5 cells that
-  wraps. Every cell in the blast loses its owner; every warrior in it dies
+- A bomb is planted with a fuse of MAXFUSE (5) and its fuse drops by 1 in
+  the SAME tick it was planted, so a bomb planted on tick t detonates on
+  tick t+4 — five ticks of life counting the one it was planted on. The
+  blast is a plus of 5 cells that wraps. Every cell in the blast loses its owner; every warrior in it dies
   and leaves a permanent corpse. Bombs caught in a blast chain.
 - 50 ticks without changing cell kills you. So does a fault.
 - When a warrior dies, EVERY tile it owned reverts to unclaimed at once.
