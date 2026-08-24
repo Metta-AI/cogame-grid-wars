@@ -1,0 +1,17 @@
+# bomber - mine the ground you leave, fence yourself in, paint inside the fence.
+var dx = 1
+var dy = 0
+var t = 0
+var step = 0
+while true:
+  step = step + 1
+  if energy() >= BOMBCOST and mod(step, 3) == 0:
+    bomb()
+  else:
+    place()
+  if check(dx, dy) == BOMB or check(dx, dy) == CORPSE or who(dx, dy) != 0:
+    t = dx
+    dx = 0 - dy
+    dy = t
+  else:
+    move(dx, dy)

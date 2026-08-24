@@ -1,0 +1,36 @@
+# painter - claim ground, turn away from walls, bomb a rival that leans in.
+var dx = 1
+var dy = 0
+var t = 0
+var run = 0
+proc wall(ax, ay) =
+  var c = check(ax, ay)
+  return c == BOMB or c == CORPSE or who(ax, ay) != 0
+proc rival() =
+  if who(1, 0) != 0 and who(1, 0) != ID:
+    return 1
+  if who(-1, 0) != 0 and who(-1, 0) != ID:
+    return 1
+  if who(0, 1) != 0 and who(0, 1) != ID:
+    return 1
+  if who(0, -1) != 0 and who(0, -1) != ID:
+    return 1
+  return 0
+while true:
+  if rival() == 1 and energy() >= BOMBCOST:
+    bomb()
+  else:
+    place()
+  if wall(dx, dy):
+    t = dx
+    dx = 0 - dy
+    dy = t
+    run = 0
+  else:
+    move(dx, dy)
+    run = run + 1
+    if run == 6:
+      run = 0
+      t = dx
+      dx = 0 - dy
+      dy = t

@@ -1,0 +1,20 @@
+# sentry - the fallback warrior: walk a box and paint it.
+var dx = 1
+var dy = 0
+var t = 0
+var run = 0
+while true:
+  place()
+  if check(dx, dy) == BOMB or check(dx, dy) == CORPSE or who(dx, dy) != 0:
+    t = dx
+    dx = 0 - dy
+    dy = t
+    run = 0
+  else:
+    move(dx, dy)
+    run = run + 1
+    if run == 8:
+      run = 0
+      t = dx
+      dx = 0 - dy
+      dy = t
