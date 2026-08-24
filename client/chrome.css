@@ -585,6 +585,17 @@ button.beat-marker {
 .beat-marker.roundend { top: 4px; height: 12px; width: 3px; --tc: var(--amber); }
 .beat-marker.end { top: 2px; height: 14px; width: 3px; --tc: var(--amber); }
 
+/* A submit or round-end beat is ABOUT a seat, so it takes that seat's
+   colour: four submits a round are otherwise four identical marks. The
+   kind rules above are two-class selectors, so the bare `.seatN` the
+   button also carries never reached them — these rules match both classes
+   and win. kill/fault/idle keep their CAUSE colour, which is the colour
+   the kill feed uses for the same event. */
+.beat-marker.submit.seat0, .beat-marker.roundend.seat0 { --tc: var(--red); }
+.beat-marker.submit.seat1, .beat-marker.roundend.seat1 { --tc: var(--blue); }
+.beat-marker.submit.seat2, .beat-marker.roundend.seat2 { --tc: var(--green); }
+.beat-marker.submit.seat3, .beat-marker.roundend.seat3 { --tc: var(--yellow); }
+
 /* Feed colours. */
 .feed-submit { color: var(--tc, var(--paper)); }
 .feed-kill { color: var(--red); font-weight: 700; }

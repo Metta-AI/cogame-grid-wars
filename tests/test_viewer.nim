@@ -82,6 +82,18 @@ suite "chrome.css":
     check "button.beat-marker" in css
     check "cursor: pointer" in css
 
+  test "a seat-attributed beat is coloured by its seat":
+    ## markGridWarsBeat puts `seatN` on every beat that names a seat, but
+    ## `.seatN` is one class and `.beat-marker.submit` is two, so the kind
+    ## rule won every time and the marker never took the seat's colour.
+    ## The submit and round-end beats now match on both classes.
+    let css = readRepo("client/chrome.css")
+    for seat in 0 .. 3:
+      check (".beat-marker.submit.seat" & $seat) in css
+      check (".beat-marker.roundend.seat" & $seat) in css
+    let js = readRepo("client/renderer.js")
+    check "\" seat\" + (seat % COLORS.length)" in js
+
   test "the transport band is a custom property on :root":
     let css = readRepo("client/chrome.css")
     check "--band: 84px" in css
