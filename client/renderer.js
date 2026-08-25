@@ -1124,7 +1124,7 @@
       var number = index + 1;
       html += '<div class="codeline' + (number === now ? " now" : "") + '">' +
         '<span class="ln">' + number + "</span>" +
-        "<span>" + escapeHtml(line) + "</span></div>";
+        '<span class="src">' + escapeHtml(line) + "</span></div>";
     });
     if (container.dataset.html !== html) {
       container.dataset.html = html;

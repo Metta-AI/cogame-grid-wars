@@ -604,6 +604,40 @@ button.beat-marker {
 .feed-round { color: var(--amber); font-weight: 700; }
 .feed-end { color: var(--amber); font-weight: 700; }
 
+/* The warrior listing is the point of this coworld, so it must never be cut
+   off mid-token. `#codepane` was a fixed 280 px with `overflow-y: auto` only
+   and `.codeline { white-space: pre }`, so every line longer than the pane --
+   which is most of them, `if who(-1, -1) != 0 and who(-1, -1) != ID:` is 44
+   characters -- was simply sliced at the border with no way to read the rest.
+   Wrap instead of slice, and let the pane take a share of a wide frame (366 px
+   in the 1408 px Observatory replay) while still fitting a 746 px embed. */
+#codepane { width: clamp(200px, 26%, 400px); overflow-x: hidden; }
+.codeline { white-space: pre-wrap; }
+.codeline .src { min-width: 0; overflow-wrap: anywhere; }
+
+/* Scorebug plates: `flex: none` on every chip meant a plate wider than its
+   1/4 column painted its tiles and energy counts over the next seat's name
+   (84 px past the plate at 746 px). `overflow: hidden` makes that impossible;
+   the ladder keeps it from turning into ellipses. Energy goes first, then the
+   episode score -- which reads 0.0 for the whole battle anyway, while the tile
+   count is the number that is actually moving. Both are on the endcard. */
+.plate { overflow: hidden; }
+#scorebug { overflow: hidden; }
+/* Pack each plate's parts to the LEFT. With the inherited `.plate-name
+   { flex: 1 1 auto }` the name absorbed the plate's spare width, so the chips
+   after it were pushed to the plate's right edge and sat directly beside the
+   NEXT seat's name -- "11 TILES daveey" reads as daveey's tile count. Slack
+   belongs at the end of the plate, not in the middle of it. */
+.plate-name { flex: 0 1 auto; }
+@media (max-width: 1200px) { .plate-energy { display: none; } }
+@media (max-width: 980px) {
+  .plate-score { display: none; }
+  /* The DEAD chip is the one chip a narrow plate can spare: `.plate.dead
+     .plate-name` already greys the name and strikes it through. FAULT stays --
+     nothing else on the plate says the warrior crashed. */
+  .plate-dead { display: none; }
+}
+
 /* Legible at 360px: the code pane and the feed collapse first, then the
    labels, then the scorebug goes two-up. The name never collapses. */
 @media (max-width: 1000px) {
