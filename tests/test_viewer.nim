@@ -94,6 +94,16 @@ suite "chrome.css":
     let js = readRepo("client/renderer.js")
     check "\" seat\" + (seat % COLORS.length)" in js
 
+  test "the speed chips are styled in the appended block":
+    ## The bytes above the marker are pinned, so the chip rules have to
+    ## live below it — and they have to say which chip is selected.
+    let css = readRepo("client/chrome.css")
+    let appended = css[css.find(GridWarsMarker) .. ^1]
+    check ".tspeed" in appended
+    check ".tchip {" in appended
+    check ".tchip.on" in appended
+    check ".tchip:hover" in appended
+
   test "the transport band is a custom property on :root":
     let css = readRepo("client/chrome.css")
     check "--band: 84px" in css
@@ -218,6 +228,29 @@ suite "renderer.js":
       let kind = rest[0 ..< rest.find('"')]
       check kind in BeatKinds
       index = at + 8
+
+  test "Space pauses playback and the transport carries speed chips":
+    ## The static bundle is the whole replay surface and binds no keys of
+    ## its own, so the shared attachReplay owns Space: one handler, and
+    ## every page that calls it gets pause-on-Space for free.
+    let js = readRepo("client/renderer.js")
+    check "function togglePlay()" in js
+    check "options.playButton.onclick = togglePlay" in js
+    check "evt.code !== \"Space\"" in js
+    check "evt.preventDefault()" in js
+    ## Not while the viewer is typing, and not scrolling the page either.
+    for tag in ["INPUT", "TEXTAREA", "SELECT"]:
+      check ("t.tagName === \"" & tag & "\"") in js
+    check "t.isContentEditable" in js
+    ## 0.5x/1x/2x chips that divide the per-frame dwell, so half speed is
+    ## genuinely half rather than a skipped frame.
+    check "[0.5, 1, 2].forEach" in js
+    check "\"tspeed\"" in js
+    check "\"tchip\"" in js
+    check "stepMs / speed" in js
+    ## Live views have no playback, so they must not grow a transport.
+    let live = readRepo("client/global.html") & readRepo("client/player.html")
+    check "attachReplay" notin live
 
   test "the renderer signals load and the shell waits for it":
     let js = readRepo("client/renderer.js")
