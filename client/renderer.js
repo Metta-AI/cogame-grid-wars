@@ -923,6 +923,7 @@
     var playing = true;
     var lastStep = 0;
     var focusOverride = null;
+    var speed = 1;   // playback rate; the per-frame dwell is stepMs / speed
 
     makeRenderer(options.canvas, options.assetBase, function (renderer) {
       var effects = makeEffects();
@@ -930,12 +931,45 @@
         playing = false;
         setIndex(next, true);
       });
-      if (options.playButton) {
-        options.playButton.onclick = function () {
-          playing = !playing;
-          if (playing && index >= frames.length - 1) setIndex(0, true);
-        };
+      function togglePlay() {
+        playing = !playing;
+        if (playing && index >= frames.length - 1) setIndex(0, true);
       }
+      if (options.playButton) {
+        options.playButton.onclick = togglePlay;
+        // Speed chips ride in the transport bar next to the play button.
+        var chips = [];
+        var row = document.createElement("span");
+        row.className = "tspeed";
+        [0.5, 1, 2].forEach(function (rate) {
+          var chip = document.createElement("button");
+          chip.type = "button";
+          chip.className = "tchip" + (rate === speed ? " on" : "");
+          chip.textContent = rate + "×";
+          chip.onclick = function () {
+            speed = rate;
+            chips.forEach(function (c) {
+              c.classList.toggle("on", c === chip);
+            });
+          };
+          chips.push(chip);
+          row.appendChild(chip);
+        });
+        options.playButton.parentNode.insertBefore(
+          row, options.playButton.nextSibling);
+      }
+      // Space pauses/resumes, exactly like the play button — but never
+      // while the viewer is typing somewhere.
+      document.addEventListener("keydown", function (evt) {
+        if (evt.code !== "Space" && evt.key !== " ") return;
+        var t = evt.target;
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" ||
+            t.tagName === "SELECT" || t.isContentEditable)) {
+          return;
+        }
+        evt.preventDefault();   // no page scroll, no double button fire
+        togglePlay();
+      });
 
       function currentFrame() {
         return frames[Math.min(Math.max(index, 0), frames.length - 1)] ||
@@ -981,7 +1015,7 @@
           shown.phase === "roundEnd" ? 1500 :
           shown.phase === "done" ? 1500 : 40;
         if (playing && index < frames.length - 1 &&
-            timestamp - lastStep > stepMs) {
+            timestamp - lastStep > stepMs / speed) {
           lastStep = timestamp;
           setIndex(index + 1, false);
         }
