@@ -149,6 +149,15 @@ jobs:
           done
           exit "${fail}"
 
+      - name: Exercise complete training series
+        run: |
+          nim c --hints:off -d:release --path:src \
+            -o:/tmp/grid-wars-posttrain tools/export_posttrain.nim
+          nim c --hints:off -d:release --path:src \
+            -o:/tmp/grid-wars-train-bridge tools/train_bridge.nim
+          python3 tools/test_training.py /tmp/grid-wars-posttrain \
+            /tmp/grid-wars-train-bridge
+
   # ---------------------------------------------------------------------
   # Packaging smoke: the production image builds, and one real episode runs
   # end to end in raw docker with the certification fixture's seat mix.
