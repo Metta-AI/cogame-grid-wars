@@ -66,6 +66,8 @@ your prompt has to write against, plus the three shipped warriors.
 
 ## Layout
 
+Training exports and numeric reinforcement learning: [docs/TRAINING.md](docs/TRAINING.md).
+
 - `src/gridwars.nim` — entrypoint (Coworld runtime contract, the live episode
   server; replays are the static bundle, never a pod)
 - `src/gridwars/gwl.nim` — the warrior language: lexer, parser, compiler to
