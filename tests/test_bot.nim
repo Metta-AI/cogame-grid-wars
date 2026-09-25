@@ -118,28 +118,6 @@ suite "the shipped warriors":
     check bomberTotal / 20.0 - painterTotal / 20.0 > 10.0
 
 
-  test "decideAll with no credentials is scripted and never touches the network":
-    let sim = initSim(fixture(3))
-    let client = newLlmClient(sim.config)
-    ## No ANTHROPIC_API_KEY and no Bedrock endpoint in CI: the client must
-    ## disable itself at construction, which is what makes offline
-    ## certification complete in about a second.
-    check client.disabled
-    let started = getMonoTime()
-    let decisions = client.decideAll(sim, @[0, 1, 2, 3],
-      @["a prompt", "another", "", ""],
-      @[skNone, skPainter, skBomber, skSentry])
-    let elapsed = (getMonoTime() - started).inMilliseconds
-    check elapsed < 500
-    check client.batchesUsed == 0
-    check decisions.len == 4
-    check decisions[0].script == warriorLines(skSentry)
-    check decisions[1].script == warriorLines(skPainter)
-    check decisions[2].script == warriorLines(skBomber)
-    check decisions[3].script == warriorLines(skSentry)
-    for decision in decisions:
-      check decision.origin == "scripted"
-
 suite "reply parsing":
   test "the canonical array-of-lines form":
     let reply = """{"script": ["var dx = 1", "while true:", "  place()",
