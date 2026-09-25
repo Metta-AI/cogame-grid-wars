@@ -1,23 +1,11 @@
-## Claude-backed warrior authoring for Grid Wars. Each seat's policy is
-## just a prompt: the game server composes the seat's view (its alias, its
-## own script with line numbers, its own diagnostics, the series table and
-## the previous round's board) plus that seat's prompt, and asks Claude for
-## a complete warrior program.
-##
-## All four seats submit simultaneously by rule, so the four requests go out
-## as ONE parallel batch (curly.makeRequests) per round — never
-## sequentially. A reply that fails to parse or fails to COMPILE is retried
-## once, in a second batch, with the exact parser or compiler message; a
-## seat still failing plays the `sentry` fallback so the episode always
-## advances.
+## Player-side Claude authoring, GWL reply parsing, and training prompts.
+## The game sends each private observation through the ordinary player socket.
 ##
 ## Credentials, in order of preference:
 ##   Bedrock sidecar / bearer token   - hosted pods
 ##   ANTHROPIC_API_KEY                - the key itself
 ##   ANTHROPIC_API_KEY_URI            - a URI holding the key
-## With no credentials every seat plays a built-in warrior immediately (no
-## retries, no network waits) so offline certification still completes —
-## this fallback is load-bearing.
+## With no player credential the bundled prompt policy sends sentry fallback.
 
 import
   std/[json, os, strutils, unicode],
@@ -62,9 +50,7 @@ type
     bedrockToken: string
     model: string
     maxOutputTokens: int
-    timeoutSeconds: int
     disabled*: bool       ## true once credentials are known-unavailable
-    batchesUsed*: int     ## batches issued for the last decideAll
 
 proc parseScriptKind*(text: string): ScriptKind =
   case text.strip().toLowerAscii()
@@ -125,12 +111,8 @@ proc bedrockUrl(client: LlmClient): string =
   client.bedrockEndpoint & "/model/" &
     client.bedrockModels[client.bedrockModel] & "/invoke"
 
-proc newLlmClient*(config: GameConfig): LlmClient =
-  result = LlmClient(
-    model: config.model,
-    maxOutputTokens: config.maxOutputTokens,
-    timeoutSeconds: config.llmTimeoutSeconds
-  )
+proc newLlmClient*(maxOutputTokens: int, model: string): LlmClient =
+  result = LlmClient(model: model, maxOutputTokens: maxOutputTokens)
   let bedrockEndpoint = getEnv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME").strip()
   let bedrockToken = getEnv("AWS_BEARER_TOKEN_BEDROCK").strip()
   if bedrockEndpoint.len > 0 or bedrockToken.len > 0:
@@ -471,64 +453,20 @@ proc textOf(client: LlmClient, response: Response, error, url: string): string =
     raise newException(GridWarsError, "reply cut off at max_tokens before " &
       "any JSON: " & cutRunes(result, 160).replace("\n", " "))
 
-proc decideAll*(
-  client: LlmClient,
-  sim: Sim,
-  seats: seq[int],
-  prompts: seq[string],
-  scripted: seq[ScriptKind]
-): seq[Submission] =
-  ## One submission per seat in `seats`, in order. Never raises: any
-  ## failure ends at the `sentry` fallback so the episode always advances.
-  ## `prompts` and `scripted` are indexed by SEAT.
-  result = newSeq[Submission](seats.len)
-  client.batchesUsed = 0
-  var open: seq[int]        ## indexes into `seats` still undecided
-  var why = newSeq[string](seats.len)
-  for index, seat in seats:
-    let kind = scripted[seat]
-    if kind != skNone:
-      result[index] = scriptedSubmission(kind)
-    elif client.disabled:
-      result[index] = scriptedSubmission(skSentry)
-    else:
-      open.add(index)
-  for attempt in 0 .. 1:
-    if open.len == 0 or client.disabled:
-      break
-    inc client.batchesUsed
-    var batch: RequestBatch
-    for index in open:
-      let seat = seats[index]
-      var user = sim.userPrompt(seat, prompts[seat])
-      if attempt > 0:
-        user.add("\n\nYour previous reply was rejected: " &
-          cleanText(why[index], 300) &
-          ". Reply with ONLY the JSON object.")
-      let request = client.requestFor(systemPrompt(sim, seat), user)
-      batch.post(request.url, request.headers, request.body, $index)
-    let responses = client.curl.makeRequests(batch, client.timeoutSeconds)
-    var stillOpen: seq[int]
-    for position, index in open:
-      let seat = seats[index]
-      try:
-        let text = client.textOf(responses[position].response,
-          responses[position].error, batch[position].url)
-        var submission = parseSubmission(extractJsonObject(text))
-        submission.origin = (if attempt == 0: "llm" else: "retry")
-        result[index] = submission
-      except GwlCompileError as error:
-        why[index] = error.msg
-        echo "grid-wars llm: seat ", seat, " attempt ", attempt,
-          " did not compile: ", error.msg
-        stillOpen.add(index)
-      except CatchableError as error:
-        why[index] = error.msg
-        echo "grid-wars llm: seat ", seat, " attempt ", attempt, " failed: ",
-          error.msg
-        stillOpen.add(index)
-    open = stillOpen
-  for index in open:
-    let seat = seats[index]
-    echo "grid-wars llm: seat ", seat, " falling back to the sentry warrior"
-    result[index] = fallbackSubmission(why[index])
+proc choosePromptSubmission*(client: LlmClient, observation, prompt: string,
+    timeoutSeconds, slot: int): Submission =
+  ## One player-owned model call over the private observation on the wire.
+  let system = "You write one complete GWL warrior program for Grid Wars. " &
+    "Survive, claim territory, and use the visible rules below. Reply only " &
+    "with JSON containing script as an array of lines, notes, and banner.\n\n" &
+    TickOrder & "\n" & GwlReference
+  let user = observation & "\n" & operatorBlock(prompt) &
+    "\nReply with ONLY {\"script\": [\"GWL line\", ...], " &
+    "\"notes\": \"\", \"banner\": \"\"}. The program must loop " &
+    "with `while true:` and compile under the GWL rules."
+  var request = client.requestFor(system, user)
+  if client.transport == ltBedrock:
+    request.headers["x-coworld-player-slot"] = $slot
+  let response = client.curl.post(request.url, request.headers, request.body,
+    timeoutSeconds)
+  parseSubmission(extractJsonObject(client.textOf(response, "", request.url)))

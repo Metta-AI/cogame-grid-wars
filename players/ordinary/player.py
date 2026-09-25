@@ -14,6 +14,12 @@ from capture import Capture
 
 
 def choose(turn: dict, generator, slot: int) -> tuple[dict, str]:
+    rules_file = Path(os.environ.get("GRIDWARS_RULES_FILE",
+                      Path(__file__).resolve().parents[2] / "docs" / "warrior-language.md"))
+    turn["system"] = "Write one complete GWL warrior program. Reply with " \
+        "JSON containing script as an array of lines, notes, and banner.\n\n" \
+        + rules_file.read_text()
+    turn["user"] = turn["observation"] + "\n" + os.environ.get("PLAYER_PROMPT", "")
     warrior_dir = Path(os.environ.get("GRIDWARS_WARRIOR_DIR",
                               Path(__file__).resolve().parents[2] / "data" / "warriors"))
     candidates = [{"id": name, "action": {
@@ -84,11 +90,8 @@ def main() -> None:
         generator = TransformersGenerator(Path(adapter))
     backend = "trained" if adapter else "jev" if os.environ.get("POC_JEV") == "1" else "canned"
     artifact = Capture(slot, backend) if os.environ.get("POC_CAPTURE_TRAINING") == "1" else None
-    register = json.dumps({"type": "prompt", "prompt": os.environ.get("PLAYER_PROMPT", ""),
-                           "scripted": False, "external": True})
     socket = websocket.create_connection(url, timeout=60)
     socket.settimeout(None)
-    socket.send(register)
     calls = 0
     pending: dict[int, tuple[dict, dict, str]] = {}
     while True:
@@ -99,15 +102,13 @@ def main() -> None:
             continue
         frame = json.loads(data)
         kind = frame["type"]
-        if kind == "welcome":
-            socket.send(register)
-        elif kind == "turn":
+        if kind == "turn":
             action, source = choose(frame, generator, slot)
             if source == "jev":
                 calls += 1
             pending[frame["round"]] = (frame, action, source)
             socket.send(json.dumps({"type": "submission", "round": frame["round"],
-                                    "action": action}))
+                                    "source": "player", "action": action}))
         elif kind == "submission_result":
             turn, action, source = pending.pop(frame["round"])
             if artifact and frame["accepted"]:

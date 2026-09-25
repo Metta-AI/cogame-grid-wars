@@ -1,14 +1,10 @@
-## Grid Wars player: a policy is just a prompt.
+## Grid Wars player: prompt or scripted policy over an ordinary program action.
 ##
-## Connects to the game, delivers its prompt (from PLAYER_PROMPT, or a
-## default Grid Wars strategy), then idles until the final frame. All of
-## the actual warrior-writing happens inside the game server, which sends
-## this seat's prompt to Claude once a round.
+## The game sends one private observation each round. This process writes
+## the complete warrior program and returns it through the player socket.
 ##
-## PLAYER_SCRIPTED=painter (or 1) registers the seat as the built-in
-## spiral-painter warrior instead; `bomber` is the aggressive baseline and
-## `sentry` the always-legal fallback. The server plays those
-## deterministically, no LLM.
+## PLAYER_SCRIPTED=painter (or 1) selects the local spiral-painter warrior;
+## `bomber` is aggressive and `sentry` is the always-legal fallback.
 ##
 ## To field your own policy, reuse this image and set PLAYER_PROMPT:
 ##   coworld upload-policy <grid-wars-image> --name my-grid-wars \
@@ -16,7 +12,8 @@
 
 import
   std/[json, options, os, strutils],
-  whisky
+  whisky,
+  gridwars/llm
 
 const DefaultPrompt = """
 Write a warrior that claims ground and stays alive. Paint every cell you
@@ -39,16 +36,17 @@ when isMainModule:
   var prompt = getEnv("PLAYER_PROMPT")
   if prompt.len == 0:
     prompt = DefaultPrompt
-  let scripted = getEnv("PLAYER_SCRIPTED").strip()
-
-  proc promptFrame(): string =
-    $ %*{"type": "prompt", "prompt": prompt, "scripted": scripted}
+  let scriptKind = parseScriptKind(getEnv("PLAYER_SCRIPTED"))
+  let client =
+    if scriptKind == skNone: newLlmClient(parseInt(getEnv("PLAYER_MAX_OUTPUT_TOKENS", "2400")),
+      getEnv("PLAYER_MODEL", "claude-sonnet-5"))
+    else: nil
+  var slot = -1
 
   echo "grid-wars player: connecting to game"
   let socket = newWebSocket(url)
-  socket.send(promptFrame())
-  echo "grid-wars player: prompt delivered (", prompt.len, " chars",
-    (if scripted.len > 0: ", scripted " & scripted else: ""), ")"
+  echo "grid-wars player: policy ",
+    (if scriptKind == skNone: "prompt" else: $scriptKind)
 
   ## whisky's receiveMessage RAISES on a close frame or a truncated read
   ## (only a timeout returns none), and mummy's send only queues, so the
@@ -68,12 +66,30 @@ when isMainModule:
         let payload = parseJson(message.data)
         case payload{"type"}.getStr()
         of "welcome":
+          slot = payload["slot"].getInt()
           echo "grid-wars player: seated at slot ",
-            payload{"slot"}.getInt(), " as ", payload{"name"}.getStr(),
+            slot, " as ", payload{"name"}.getStr(),
             " (warrior ", payload{"id"}.getInt(), ")"
-          ## Re-deliver the prompt after the welcome, in case the first
-          ## send raced the server's slot registration.
-          socket.send(promptFrame())
+        of "turn":
+          var submission: Submission
+          if scriptKind != skNone:
+            submission = scriptedSubmission(scriptKind)
+          elif client.disabled:
+            submission = fallbackSubmission("no player model credential")
+          else:
+            try:
+              submission = choosePromptSubmission(client,
+                payload["observation"].getStr(), prompt,
+                max(1, payload["timeout_ms"].getInt() div 1000 - 1), slot)
+            except CatchableError as error:
+              echo "grid-wars player: model call failed: ", error.msg
+              submission = fallbackSubmission(error.msg)
+          socket.send($ %*{"type": "submission",
+            "round": payload["round"].getInt(),
+            "source": (if submission.origin == "fallback": "fallback"
+                       elif submission.origin == "scripted": "scripted"
+                       else: "player"),
+            "action": submissionJson(submission)})
         of "final":
           echo "grid-wars player: final scores ", payload{"scores"}
           break

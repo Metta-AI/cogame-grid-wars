@@ -27,32 +27,17 @@ Scoring is symmetric zero-sum: `raw = tiles + 100 if alive + 50 per kill −
 four-seat average, so **the four scores sum to exactly zero**. Territory is
 the score, but a dead warrior owns nothing.
 
-**Policies act through the player WebSocket.** Every round the game builds each seat's alias, its own current
-script with line numbers, its own diagnostics (fault line, death cause,
-tiles curve, `illegal`/`blocked`/`refused`/`stalls`), the series table and
-the previous round's ASCII board into a private prompt. A player can register
-that prompt for the game-hosted Claude client or receive it and submit a complete
-program. The game compiles and seals every program before the round starts. An
-[ordinary player](players/ordinary/README.md) supports canned, Jev, and trained
-adapter backends. A hosted model reply that does not parse or **compile** is retried once with
-the exact compiler message; a seat still failing plays the built-in
-`sentry` warrior for that round.
+**Policies act through the player WebSocket.** Every round the game sends each
+seat its alias, own script and diagnostics, series table, and previous board
+as a private observation. Each player writes a complete GWL program. The game
+compiles and seals all four before battle, then owns execution, results, and
+replay. The [ordinary player](players/ordinary/README.md) supports canned,
+Jev, and trained adapter backends. The bundled player supports prompt and
+scripted programs. Missing or invalid actions use the sentry fallback.
 
-Three built-in **scripted warriors** — `painter` (claim ground, turn away
-from walls, bomb a rival that leans in), `bomber` (mine the ground you
-leave and fence yourself in) and `sentry` (the always-legal fallback) —
-play any seat that registers as scripted, and every seat when no LLM
-credentials are available, so episodes and offline certification always
-complete.
-
-Seats play under **anonymous cog names** (Sprocket, Gizmo, …): policy
-display names never reach the agents' prompts, so nobody can meta-game
-"that seat is the champion", and **no seat ever sees another seat's source
-code**, before, during or after a round. The spectator and replay viewers
-map the aliases back to policy names; results are reported under policy
-names.
-
-## Field your own policy
+Three shipped warriors are `painter` (claim ground and turn around walls),
+`bomber` (mine the ground behind it), and `sentry` (the fallback). Prompt and
+Jev model calls use player-owned credentials; the game receives none.
 
 ```bash
 coworld upload-policy <grid-wars-image> --name my-grid-wars \
@@ -60,8 +45,8 @@ coworld upload-policy <grid-wars-image> --name my-grid-wars \
   --secret-env PLAYER_PROMPT="<your warrior-writing strategy>"
 ```
 
-`docs`/`warrior-language.md` in the manifest is the complete GWL reference
-your prompt has to write against, plus the three shipped warriors.
+`docs/warrior-language.md` is the GWL reference packaged by the ordinary
+player and published in the manifest, alongside the three shipped warriors.
 To submit programs directly, package the
 [ordinary player](players/ordinary/README.md) as a player image.
 
@@ -77,10 +62,10 @@ Training exports and numeric reinforcement learning: [docs/TRAINING.md](docs/TRA
 - `src/gridwars/sim.nim` — the arena rules and the episode state machine.
   Pure, no IO; the server, the tests and the wasm viewer all drive this
   module and nothing else
-- `src/gridwars/llm.nim` — Claude client (one parallel batch per round),
-  prompts, tolerant reply parsing, and the three scripted warriors
+- `src/gridwars/llm.nim` — player-side Claude client, training prompts,
+  reply parsing, and the three scripted warriors
 - `src/gridwars/server.nim` — mummy HTTP/WS server (player, global)
-- `src/gridwars_player.nim` — the prompt-delivery player (`PLAYER_PROMPT` /
+- `src/gridwars_player.nim` — the prompt and scripted player (`PLAYER_PROMPT` /
   `PLAYER_SCRIPTED` env)
 - `client/` — the inherited bullwhip broadcast chrome plus one appended
   Grid Wars block: the arena, the territory bar and the code pane

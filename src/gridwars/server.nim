@@ -3,7 +3,7 @@
 ## Endpoints:
 ##   GET /healthz                    - liveness
 ##   GET /client/global              - spectator page
-##   GET /client/player              - player page (view-only; policies are prompts)
+##   GET /client/player              - player page (view only)
 ##   GET /client/renderer.js         - shared arena renderer
 ##   GET /client/chrome.css          - shared chrome
 ##   GET /client/assets/<name>       - sprites and fonts
@@ -20,17 +20,16 @@
 ## a bad-token player websocket and GET /client/global before the player
 ## pods start.
 ##
-## Player protocol (gridwars.player.v2), all JSON text frames:
-##   game -> player: {"type":"welcome","protocol":"gridwars.player.v2",...}
+## Player protocol (gridwars.player.v3), all JSON text frames:
+##   game -> player: {"type":"welcome","protocol":"gridwars.player.v3",...}
 ##                   {"type":"state",...} redacted to this seat
 ##                   {"type":"final","scores":[...],...}
-##   player -> game: {"type":"prompt","prompt":"...","scripted":"painter"}
-##                   {"type":"submission","round":N,"action":{...}}
-##   game -> external player: {"type":"turn","round":N,"system":str,
-##                            "user":str,"candidates":[...]}
+##   game -> player: {"type":"turn","round":N,"observation":str,
+##                   "timeout_ms":N}
+##   player -> game: {"type":"submission","round":N,"action":{...}}
 
 import
-  std/[json, locks, os, sets, strutils, tables, times, unicode],
+  std/[json, locks, os, sets, strutils, tables, times],
   bitworld/runtime,
   curly,
   mummy,
@@ -39,18 +38,12 @@ import
   sim
 
 const
-  MaxPromptLen = 4000
   ReplayVersion = 1
   ShutdownGraceSeconds = 20
   RoundReserveSeconds* = 150.0
     ## Checked BEFORE every submission batch. In the pathological case
     ## where player connect ate its whole cap, round 4 or 5 is given up
     ## rather than the entire episode.
-  RoundSpacingSeconds* = 8.0
-    ## The hosted Bedrock sidecar caps 30 requests/minute per episode. A
-    ## batch is four requests, so eight seconds between rounds keeps a
-    ## one-batch round under the cap; a round that needed a retry doubles
-    ## the floor.
   PlayBudgetFraction* = 0.6
     ## Share of the platform's episode timeout spent playing. The rest
     ## covers container start, player connects, and writing the artifacts.
@@ -59,9 +52,6 @@ type
   GameState = object
     config: GameConfig
     sim: Sim
-    prompts: seq[string]
-    scripted: seq[ScriptKind]
-    external: seq[bool]
     pendingRound: int
     pendingSubmissions: Table[int, Submission]
     playerSockets: Table[int, WebSocket]
@@ -209,8 +199,6 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         config.tokens.len, " players connected"
       state.broadcastLocked()
 
-    let client = newLlmClient(config)
-
     let hostedTimeout = getEnv("COWORLD_TIMEOUT_SECONDS", "").strip()
     var timeoutSeconds =
       if hostedTimeout.len > 0:
@@ -226,13 +214,9 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         (if hostedTimeout.len > 0: "from env" else: "assumed"),
         "); playing until ", (timeoutSeconds * PlayBudgetFraction).int, "s"
 
-    var lastBatchEnd = 0.0
     while true:
-      var simCopy: Sim
       var seats: seq[int]
-      var prompts: seq[string]
-      var scripted: seq[ScriptKind]
-      var external: seq[bool]
+      var currentRound = 0
       var forceFallback = false
       withLock stateLock:
         if state.sim.done:
@@ -253,10 +237,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
             "fallback round"
           forceFallback = true
         seats = state.sim.pendingSeats()
-        simCopy = state.sim
-        prompts = state.prompts
-        scripted = state.scripted
-        external = state.external
+        currentRound = state.sim.round
         echo "grid-wars: round ", state.sim.round, " of ", config.rounds,
           " at ", (epochTime() - gameStart).int, "s"
 
@@ -266,26 +247,20 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
           decisions.add(fallbackSubmission("episode deadline"))
       else:
         let decisionDeadline = epochTime() +
-          config.llmTimeoutSeconds.float
-        var modelSeats, waitingSeats: seq[int]
+          config.actionTimeoutSeconds.float
+        var waitingSeats: seq[int]
         withLock stateLock:
-          state.pendingRound = simCopy.round
+          state.pendingRound = currentRound
           state.pendingSubmissions.clear()
           for seat in seats:
-            if not external[seat]:
-              modelSeats.add(seat)
-              continue
             if state.playerSockets.hasKey(seat):
               state.playerSockets[seat].send($ %*{
                 "type": "turn",
-                "round": simCopy.round,
-                "system": systemPrompt(simCopy, seat),
-                "user": userPrompt(simCopy, seat, prompts[seat])
+                "round": currentRound,
+                "timeout_ms": config.actionTimeoutSeconds * 1000,
+                "observation": state.sim.seatObservation(seat)
               })
               waitingSeats.add(seat)
-        let modelDecisions = client.decideAll(simCopy, modelSeats, prompts,
-          scripted)
-        lastBatchEnd = epochTime()
         while waitingSeats.len > 0 and epochTime() < decisionDeadline:
           var received = 0
           withLock stateLock:
@@ -296,20 +271,12 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
             break
           sleep(20)
         decisions = newSeq[Submission](seats.len)
-        var modelIndex = 0
-        for index, seat in seats:
-          if external[seat]:
-            continue
-          decisions[index] = modelDecisions[modelIndex]
-          modelIndex.inc
         withLock stateLock:
           for index, seat in seats:
-            if not external[seat]:
-              continue
             if state.pendingSubmissions.hasKey(seat):
               decisions[index] = state.pendingSubmissions[seat]
             else:
-              echo "grid-wars: external seat ", seat,
+              echo "grid-wars: seat ", seat,
                 " using sentry fallback"
               decisions[index] = fallbackSubmission("missing player action")
           state.pendingRound = -1
@@ -318,7 +285,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
       withLock stateLock:
         for index, seat in seats:
           let decision = decisions[index]
-          accepted[index] = decision.origin == "player"
+          accepted[index] = decision.origin != "fallback"
           echo "grid-wars: round ", state.sim.round, " ",
             state.sim.names[seat], " submits ", decision.script.len,
             " lines (", decision.origin, ") at ",
@@ -335,10 +302,10 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
             accepted[index] = false
         state.broadcastLocked()
         for index, seat in seats:
-          if external[seat] and state.playerSockets.hasKey(seat) and
+          if state.playerSockets.hasKey(seat) and
               not forceFallback:
             state.playerSockets[seat].send($ %*{
-              "type": "submission_result", "round": simCopy.round,
+              "type": "submission_result", "round": currentRound,
               "accepted": accepted[index]
             })
 
@@ -348,24 +315,8 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
           state.broadcastLocked()
         break
 
-      ## Pace between rounds so spectators can read the new programs, and
-      ## floor the wall spacing so a fast round cannot outrun the sidecar's
-      ## 30-requests-per-minute cap.
-      if not state.sim.done:
-        let floorSeconds =
-          if client.batchesUsed > 1: RoundSpacingSeconds * 2
-          else: RoundSpacingSeconds
-        var waited = 0
-        if config.roundDelayMs > 0:
-          sleep(config.roundDelayMs)
-          waited = config.roundDelayMs
-        if client.batchesUsed > 0 and lastBatchEnd > 0.0:
-          let remaining = floorSeconds - (epochTime() - lastBatchEnd)
-          if remaining > 0.0:
-            echo "grid-wars: rate-limit floor, waiting ",
-              remaining.int, "s (", client.batchesUsed, " batches)"
-            sleep(int(remaining * 1000.0))
-        discard waited
+      if not state.sim.done and config.roundDelayMs > 0:
+        sleep(config.roundDelayMs)
 
     finishEpisode(runtimeConfig)
 
@@ -435,7 +386,7 @@ proc playerUpgradeHandler(request: Request) {.gcsafe.} =
         state.playerSockets.len, "/", state.config.tokens.len, ")"
       websocket.send($ %*{
         "type": "welcome",
-        "protocol": "gridwars.player.v2",
+        "protocol": "gridwars.player.v3",
         "slot": slot,
         "name": state.sim.names[slot],
         "id": slot + 1,
@@ -475,38 +426,20 @@ proc websocketHandler(
         return
       try:
         let payload = parseJson(message.data)
-        if payload{"type"}.getStr() == "prompt":
-          var prompt = payload{"prompt"}.getStr()
-          if prompt.runeLen > MaxPromptLen:
-            prompt = prompt.runeSubStr(0, MaxPromptLen)
-          let node = payload{"scripted"}
-          let scripted =
-            if node.isNil: skNone
-            elif node.kind == JBool: (if node.getBool(): skPainter else: skNone)
-            else: parseScriptKind(node.getStr())
-          let external = payload{"external"}.getBool(false)
-          if external and scripted != skNone:
-            raise newException(GridWarsError,
-              "an external player cannot register as scripted")
-          withLock stateLock:
-            state.prompts[slot] = prompt
-            state.scripted[slot] = scripted
-            state.external[slot] = external
-          echo "grid-wars: slot ", slot, " delivered a prompt (",
-            prompt.len, " chars",
-            (if scripted != skNone: ", scripted " & $scripted
-             elif external: ", external" else: ""), ")"
-        elif payload{"type"}.getStr() == "submission":
+        if payload{"type"}.getStr() == "submission":
           let round = payload["round"].getInt()
           let action = payload["action"]
           if action.kind != JObject:
             raise newException(GridWarsError,
               "submission action must be an object")
           withLock stateLock:
-            if state.external[slot] and round == state.pendingRound and
+            if round == state.pendingRound and
                 not state.pendingSubmissions.hasKey(slot):
               var submission = parseSubmission(action)
-              submission.origin = "player"
+              let source = payload{"source"}.getStr("player")
+              if source notin ["player", "scripted", "fallback"]:
+                raise newException(GridWarsError, "unknown submission source")
+              submission.origin = source
               state.pendingSubmissions[slot] = submission
       except CatchableError as error:
         echo "grid-wars: ignoring bad player frame: ", error.msg
@@ -536,9 +469,6 @@ proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
     raise newException(GridWarsError, "tokens and players must align")
   state.config = config
   state.sim = initSim(config)
-  state.prompts = newSeq[string](config.players.len)
-  state.scripted = newSeq[ScriptKind](config.players.len)
-  state.external = newSeq[bool](config.players.len)
   state.pendingRound = -1
   state.pendingSubmissions = initTable[int, Submission]()
 

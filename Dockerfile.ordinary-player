@@ -6,5 +6,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY players/ordinary/*.py .
 COPY data/warriors /data/warriors
 ENV GRIDWARS_WARRIOR_DIR=/data/warriors
+COPY docs/warrior-language.md /player/warrior-language.md
+ENV GRIDWARS_RULES_FILE=/player/warrior-language.md
 
 CMD ["python", "player.py"]
