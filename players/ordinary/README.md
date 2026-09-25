@@ -1,6 +1,6 @@
 # Ordinary Grid Wars player
 
-This player receives its private round prompt through `gridwars.player.v2` and sends a complete warrior program. The game compiles every program, seals all four before battle, and owns board execution, scores, and replay. The default backend submits `painter`. `POC_JEV=1` asks Jev System One to choose among the complete `painter`, `bomber`, and `sentry` programs. `POC_ADAPTER_DIR` loads a Metta post-training adapter that generates program JSON. Existing prompt and scripted players remain fieldable.
+This player receives its private round prompt through `gridwars.player.v2` and sends a complete warrior program. The game compiles every program, seals all four before battle, and owns board execution, scores, and replay. The player packages its own `painter`, `bomber`, and `sentry` candidate programs. The default backend submits `painter`. `POC_JEV=1` asks Jev System One to choose among those complete programs. `POC_ADAPTER_DIR` loads a Metta post-training adapter that generates program JSON. Existing prompt and scripted players remain fieldable.
 
 Build the local game and player images, then run a mixed roster from a manifest based on the downloaded certified package:
 

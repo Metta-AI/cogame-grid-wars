@@ -6,14 +6,20 @@ import json
 import math
 import os
 import urllib.request
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import websocket
 from capture import Capture
 
 
-def choose(turn: dict, generator) -> tuple[dict, str]:
-    candidates = turn["candidates"]
+def choose(turn: dict, generator, slot: int) -> tuple[dict, str]:
+    warrior_dir = Path(os.environ.get("GRIDWARS_WARRIOR_DIR",
+                              Path(__file__).resolve().parents[2] / "data" / "warriors"))
+    candidates = [{"id": name, "action": {
+        "script": (warrior_dir / f"{name}.gwl").read_text().splitlines(),
+        "notes": "", "banner": ""}}
+        for name in ("painter", "bomber", "sentry")]
     if generator:
         completion = generator([
             {"role": "system", "content": turn["system"]},
@@ -49,6 +55,8 @@ def choose(turn: dict, generator) -> tuple[dict, str]:
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = "Bearer " + key
+    else:
+        headers["X-Coworld-Player-Slot"] = str(slot)
     request = urllib.request.Request(endpoint.rstrip("/") + "/v1/systemone",
                                      body, headers, method="POST")
     with urllib.request.urlopen(request, timeout=10) as response:
@@ -71,8 +79,6 @@ def main() -> None:
         raise ValueError("select one Grid Wars policy backend")
     generator = None
     if adapter:
-        from pathlib import Path
-
         from posttrain import TransformersGenerator
 
         generator = TransformersGenerator(Path(adapter))
@@ -96,7 +102,7 @@ def main() -> None:
         if kind == "welcome":
             socket.send(register)
         elif kind == "turn":
-            action, source = choose(frame, generator)
+            action, source = choose(frame, generator, slot)
             if source == "jev":
                 calls += 1
             pending[frame["round"]] = (frame, action, source)

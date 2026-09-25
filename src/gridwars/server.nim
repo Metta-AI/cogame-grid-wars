@@ -280,15 +280,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
                 "type": "turn",
                 "round": simCopy.round,
                 "system": systemPrompt(simCopy, seat),
-                "user": userPrompt(simCopy, seat, prompts[seat]),
-                "candidates": [
-                  {"id": "painter", "action": submissionJson(
-                    scriptedSubmission(skPainter))},
-                  {"id": "bomber", "action": submissionJson(
-                    scriptedSubmission(skBomber))},
-                  {"id": "sentry", "action": submissionJson(
-                    scriptedSubmission(skSentry))}
-                ]
+                "user": userPrompt(simCopy, seat, prompts[seat])
               })
               waitingSeats.add(seat)
         let modelDecisions = client.decideAll(simCopy, modelSeats, prompts,

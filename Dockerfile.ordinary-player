@@ -4,5 +4,7 @@ WORKDIR /player
 COPY players/ordinary/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY players/ordinary/*.py .
+COPY data/warriors /data/warriors
+ENV GRIDWARS_WARRIOR_DIR=/data/warriors
 
 CMD ["python", "player.py"]
