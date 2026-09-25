@@ -38,7 +38,7 @@ when isMainModule:
       for seat in game.pendingSeats():
         let kind = Kinds[(seed + game.round + seat) mod Kinds.len]
         let script = warriorLines(kind)
-        let reply = %*{"script": script, "notes": "", "banner": ""}
+        let reply = submissionJson(scriptedSubmission(kind))
         let accepted = parseSubmission(reply)
         doAssert accepted.script == script
         rows.add($(%*{

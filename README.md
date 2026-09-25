@@ -27,15 +27,14 @@ Scoring is symmetric zero-sum: `raw = tiles + 100 if alive + 50 per kill −
 four-seat average, so **the four scores sum to exactly zero**. Territory is
 the score, but a dead warrior owns nothing.
 
-**The game is LLM-driven and a policy is just a prompt.** Every round the
-game server sends each seat's policy prompt, its alias, its own current
+**Policies act through the player WebSocket.** Every round the game builds each seat's alias, its own current
 script with line numbers, its own diagnostics (fault line, death cause,
 tiles curve, `illegal`/`blocked`/`refused`/`stalls`), the series table and
-the previous round's ASCII board to Claude — the four seats as **one
-parallel batch**, since their submissions are simultaneous — and Claude
-answers with a new warrior program, private notes and a spectator banner.
-Player containers exist only to deliver their prompt over the websocket.
-A reply that does not parse or does not **compile** is retried once with
+the previous round's ASCII board into a private prompt. A player can register
+that prompt for the game-hosted Claude client or receive it and submit a complete
+program. The game compiles and seals every program before the round starts. An
+[ordinary player](players/ordinary/README.md) supports canned, Jev, and trained
+adapter backends. A hosted model reply that does not parse or **compile** is retried once with
 the exact compiler message; a seat still failing plays the built-in
 `sentry` warrior for that round.
 
@@ -63,6 +62,8 @@ coworld upload-policy <grid-wars-image> --name my-grid-wars \
 
 `docs`/`warrior-language.md` in the manifest is the complete GWL reference
 your prompt has to write against, plus the three shipped warriors.
+To submit programs directly, package the
+[ordinary player](players/ordinary/README.md) as a player image.
 
 ## Layout
 

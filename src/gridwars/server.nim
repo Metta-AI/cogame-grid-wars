@@ -7,7 +7,7 @@
 ##   GET /client/renderer.js         - shared arena renderer
 ##   GET /client/chrome.css          - shared chrome
 ##   GET /client/assets/<name>       - sprites and fonts
-##   WS  /player?slot=N&token=T      - player protocol (prompt delivery)
+##   WS  /player?slot=N&token=T      - player protocol
 ##   WS  /global                     - spectator snapshots
 ##
 ## There is NO replay route and no replay mode: a recorded episode is played
@@ -20,11 +20,14 @@
 ## a bad-token player websocket and GET /client/global before the player
 ## pods start.
 ##
-## Player protocol (gridwars.player.v1), all JSON text frames:
-##   game -> player: {"type":"welcome","protocol":"gridwars.player.v1",...}
+## Player protocol (gridwars.player.v2), all JSON text frames:
+##   game -> player: {"type":"welcome","protocol":"gridwars.player.v2",...}
 ##                   {"type":"state",...} redacted to this seat
 ##                   {"type":"final","scores":[...],...}
 ##   player -> game: {"type":"prompt","prompt":"...","scripted":"painter"}
+##                   {"type":"submission","round":N,"action":{...}}
+##   game -> external player: {"type":"turn","round":N,"system":str,
+##                            "user":str,"candidates":[...]}
 
 import
   std/[json, locks, os, sets, strutils, tables, times, unicode],
@@ -58,6 +61,9 @@ type
     sim: Sim
     prompts: seq[string]
     scripted: seq[ScriptKind]
+    external: seq[bool]
+    pendingRound: int
+    pendingSubmissions: Table[int, Submission]
     playerSockets: Table[int, WebSocket]
     socketSlots: Table[WebSocket, int]
     globalSockets: HashSet[WebSocket]
@@ -226,6 +232,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
       var seats: seq[int]
       var prompts: seq[string]
       var scripted: seq[ScriptKind]
+      var external: seq[bool]
       var forceFallback = false
       withLock stateLock:
         if state.sim.done:
@@ -249,6 +256,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         simCopy = state.sim
         prompts = state.prompts
         scripted = state.scripted
+        external = state.external
         echo "grid-wars: round ", state.sim.round, " of ", config.rounds,
           " at ", (epochTime() - gameStart).int, "s"
 
@@ -257,15 +265,68 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         for _ in seats:
           decisions.add(fallbackSubmission("episode deadline"))
       else:
-        ## The slow part (Claude, ONE parallel batch for the whole round)
-        ## runs outside the lock on a snapshot; only this thread mutates
-        ## the sim, so the snapshot cannot go stale.
-        decisions = client.decideAll(simCopy, seats, prompts, scripted)
+        let decisionDeadline = epochTime() +
+          (config.llmTimeoutSeconds * 2).float
+        var modelSeats, waitingSeats: seq[int]
+        withLock stateLock:
+          state.pendingRound = simCopy.round
+          state.pendingSubmissions.clear()
+          for seat in seats:
+            if not external[seat]:
+              modelSeats.add(seat)
+              continue
+            if state.playerSockets.hasKey(seat):
+              state.playerSockets[seat].send($ %*{
+                "type": "turn",
+                "round": simCopy.round,
+                "system": systemPrompt(simCopy, seat),
+                "user": userPrompt(simCopy, seat, prompts[seat]),
+                "candidates": [
+                  {"id": "painter", "action": submissionJson(
+                    scriptedSubmission(skPainter))},
+                  {"id": "bomber", "action": submissionJson(
+                    scriptedSubmission(skBomber))},
+                  {"id": "sentry", "action": submissionJson(
+                    scriptedSubmission(skSentry))}
+                ]
+              })
+              waitingSeats.add(seat)
+        let modelDecisions = client.decideAll(simCopy, modelSeats, prompts,
+          scripted)
         lastBatchEnd = epochTime()
+        while waitingSeats.len > 0 and epochTime() < decisionDeadline:
+          var received = 0
+          withLock stateLock:
+            for seat in waitingSeats:
+              if state.pendingSubmissions.hasKey(seat):
+                received.inc
+          if received == waitingSeats.len:
+            break
+          sleep(20)
+        decisions = newSeq[Submission](seats.len)
+        var modelIndex = 0
+        for index, seat in seats:
+          if external[seat]:
+            continue
+          decisions[index] = modelDecisions[modelIndex]
+          modelIndex.inc
+        withLock stateLock:
+          for index, seat in seats:
+            if not external[seat]:
+              continue
+            if state.pendingSubmissions.hasKey(seat):
+              decisions[index] = state.pendingSubmissions[seat]
+            else:
+              echo "grid-wars: external seat ", seat,
+                " using sentry fallback"
+              decisions[index] = fallbackSubmission("missing player action")
+          state.pendingRound = -1
 
+      var accepted = newSeq[bool](seats.len)
       withLock stateLock:
         for index, seat in seats:
           let decision = decisions[index]
+          accepted[index] = decision.origin == "player"
           echo "grid-wars: round ", state.sim.round, " ",
             state.sim.names[seat], " submits ", decision.script.len,
             " lines (", decision.origin, ") at ",
@@ -279,7 +340,15 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
             let fallback = fallbackSubmission(error.msg)
             state.sim.submit(seat, fallback.script, "", "", "fallback",
               error.msg)
+            accepted[index] = false
         state.broadcastLocked()
+        for index, seat in seats:
+          if external[seat] and state.playerSockets.hasKey(seat) and
+              not forceFallback:
+            state.playerSockets[seat].send($ %*{
+              "type": "submission_result", "round": simCopy.round,
+              "accepted": accepted[index]
+            })
 
       if forceFallback:
         withLock stateLock:
@@ -374,7 +443,7 @@ proc playerUpgradeHandler(request: Request) {.gcsafe.} =
         state.playerSockets.len, "/", state.config.tokens.len, ")"
       websocket.send($ %*{
         "type": "welcome",
-        "protocol": "gridwars.player.v1",
+        "protocol": "gridwars.player.v2",
         "slot": slot,
         "name": state.sim.names[slot],
         "id": slot + 1,
@@ -423,12 +492,30 @@ proc websocketHandler(
             if node.isNil: skNone
             elif node.kind == JBool: (if node.getBool(): skPainter else: skNone)
             else: parseScriptKind(node.getStr())
+          let external = payload{"external"}.getBool(false)
+          if external and scripted != skNone:
+            raise newException(GridWarsError,
+              "an external player cannot register as scripted")
           withLock stateLock:
             state.prompts[slot] = prompt
             state.scripted[slot] = scripted
+            state.external[slot] = external
           echo "grid-wars: slot ", slot, " delivered a prompt (",
             prompt.len, " chars",
-            (if scripted != skNone: ", scripted " & $scripted else: ""), ")"
+            (if scripted != skNone: ", scripted " & $scripted
+             elif external: ", external" else: ""), ")"
+        elif payload{"type"}.getStr() == "submission":
+          let round = payload["round"].getInt()
+          let action = payload["action"]
+          if action.kind != JObject:
+            raise newException(GridWarsError,
+              "submission action must be an object")
+          withLock stateLock:
+            if state.external[slot] and round == state.pendingRound and
+                not state.pendingSubmissions.hasKey(slot):
+              var submission = parseSubmission(action)
+              submission.origin = "player"
+              state.pendingSubmissions[slot] = submission
       except CatchableError as error:
         echo "grid-wars: ignoring bad player frame: ", error.msg
     of ErrorEvent:
@@ -459,6 +546,9 @@ proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
   state.sim = initSim(config)
   state.prompts = newSeq[string](config.players.len)
   state.scripted = newSeq[ScriptKind](config.players.len)
+  state.external = newSeq[bool](config.players.len)
+  state.pendingRound = -1
+  state.pendingSubmissions = initTable[int, Submission]()
 
   let router = buildRouter()
   gameServer = newServer(router, websocketHandler)

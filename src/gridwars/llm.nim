@@ -173,6 +173,11 @@ proc scriptedSubmission*(kind: ScriptKind): Submission =
     origin: "scripted"
   )
 
+proc submissionJson*(submission: Submission): JsonNode =
+  ## Complete normal player action, including the source lines.
+  %*{"script": submission.script, "notes": submission.notes,
+    "banner": submission.banner}
+
 proc fallbackSubmission*(compileError: string): Submission =
   Submission(script: warriorLines(skSentry), origin: "fallback",
     rejected: cleanText(compileError, 300))

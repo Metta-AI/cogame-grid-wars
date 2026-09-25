@@ -1,0 +1,14 @@
+FROM python:3.12-slim
+
+WORKDIR /player
+COPY players/ordinary/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir torch==2.9.0 --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir transformers==4.57.1 peft==0.20.0
+COPY players/ordinary/*.py .
+COPY --from=base / /models/base
+COPY --from=adapter / /models/adapter
+
+ENV POC_BASE_MODEL_DIR=/models/base
+ENV POC_ADAPTER_DIR=/models/adapter
+CMD ["python", "player.py"]
