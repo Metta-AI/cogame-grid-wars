@@ -266,7 +266,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
           decisions.add(fallbackSubmission("episode deadline"))
       else:
         let decisionDeadline = epochTime() +
-          (config.llmTimeoutSeconds * 2).float
+          config.llmTimeoutSeconds.float
         var modelSeats, waitingSeats: seq[int]
         withLock stateLock:
           state.pendingRound = simCopy.round
