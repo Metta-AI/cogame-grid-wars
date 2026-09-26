@@ -27,8 +27,8 @@ uv run --package metta-posttrain --extra train python -m metta_posttrain.train \
 The [ordinary player](../players/ordinary/README.md) can capture accepted
 programs from complete local episodes through the standard Coworld policy
 artifact URL. Its exporter splits by whole series seed. The same player can
-load a trained adapter, or use Jev to choose a complete published warrior,
-and submits through `gridwars.player.v2`.
+load a trained adapter
+and submit through `gridwars.player.v2`.
 
 ## Numeric reinforcement learning
 

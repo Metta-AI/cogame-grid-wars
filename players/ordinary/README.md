@@ -1,6 +1,6 @@
 # Ordinary Grid Wars player
 
-This player receives its private round prompt through `gridwars.player.v3` and sends a complete warrior program. The game compiles every program, seals all four before battle, and owns board execution, scores, and replay. The player packages its own `painter`, `bomber`, and `sentry` candidate programs. The default backend submits `painter`. `POC_JEV=1` asks Jev System One to choose among those complete programs. `POC_ADAPTER_DIR` loads a Metta post-training adapter that generates program JSON. Existing prompt and scripted players remain fieldable.
+This player receives its private round prompt through `gridwars.player.v3` and sends a complete warrior program. The game compiles every program, seals all four before battle, and owns board execution, scores, and replay. The default backend submits the packaged `painter` program. `POC_ADAPTER_DIR` loads a Metta post-training adapter that generates program JSON. Existing prompt and scripted players remain fieldable.
 
 Build the local game and player images, then run a mixed roster from a manifest based on the downloaded certified package:
 
@@ -9,8 +9,6 @@ docker build --platform linux/amd64 -t gridwars-game:local .
 docker build --platform linux/amd64 -f Dockerfile.ordinary-player -t gridwars-player:local .
 uv run coworld run-episode /path/to/coworld_manifest.json --timeout-seconds 120 -o /tmp/gridwars-ordinary
 ```
-
-For local Jev verification, set `POC_JEV=1` and `AWS_ENDPOINT_URL_BEDROCK_RUNTIME` on the ordinary player. That endpoint uses pinned `typesafe/jev-1.13`. A local mock can return a System One choice response; no production model call is needed for protocol testing.
 
 Set `POC_CAPTURE_TRAINING=1` and `POC_SOURCE_REVISION=<policy commit>` to upload accepted submissions through the standard Coworld artifact URL. Capture complete games with different seeds and export them:
 
@@ -21,7 +19,7 @@ uv run --package metta-posttrain --extra train python -m metta_posttrain.train \
   --device cpu --max-steps 100 --max-length 4096 --max-eval-examples 128
 ```
 
-The existing `tools/export_posttrain.nim` also exports complete scripted games without containers. The artifact exporter admits only completed games, accepted programs, a matching source revision, and separate whole-game seed splits. Review Jev programs before using `--source jev` as training data.
+The existing `tools/export_posttrain.nim` also exports complete scripted games without containers. The artifact exporter admits only completed games, accepted programs, a matching source revision, and separate whole-game seed splits.
 
 Package the base and adapter into a separate player image:
 

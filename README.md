@@ -31,13 +31,13 @@ the score, but a dead warrior owns nothing.
 seat its alias, own script and diagnostics, series table, and previous board
 as a private observation. Each player writes a complete GWL program. The game
 compiles and seals all four before battle, then owns execution, results, and
-replay. The [ordinary player](players/ordinary/README.md) supports canned,
-Jev, and trained adapter backends. The bundled player supports prompt and
+replay. The [ordinary player](players/ordinary/README.md) supports canned
+and trained adapter backends. The bundled player supports prompt and
 scripted programs. Missing or invalid actions use the sentry fallback.
 
 Three shipped warriors are `painter` (claim ground and turn around walls),
-`bomber` (mine the ground behind it), and `sentry` (the fallback). Prompt and
-Jev model calls use player-owned credentials; the game receives none.
+`bomber` (mine the ground behind it), and `sentry` (the fallback). Prompt
+model calls use player-owned credentials; the game receives none.
 
 ```bash
 coworld upload-policy <grid-wars-image> --name my-grid-wars \
