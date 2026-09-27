@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise Grid Wars game, prompt, Jev, and scripted players on one native build."""
+"""Exercise Grid Wars game, prompt, canned, and scripted players on one native build."""
 
 import json
 import os
@@ -15,25 +15,17 @@ from pathlib import Path
 GAME, PLAYER = sys.argv[1:3]
 ROOT = Path(__file__).resolve().parents[2]
 PAINTER = (ROOT / "data/warriors/painter.gwl").read_text().splitlines()
-requests = {"jev": 0, "prompt": 0}
+requests = {"prompt": 0}
 
 
 class Stub(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        if self.path.endswith("/v1/systemone"):
-            requests["jev"] += 1
-            assert self.headers["X-Coworld-Player-Slot"] == "0"
-            criteria = body["questions"]["action"]["criteria"]
-            assert len(criteria) == 3
-            response = {"answers": {"action": {"type": "choice", "probabilities":
-                {name: 1.0 if name == "1" else 0.0 for name in criteria}}}}
-        else:
-            requests["prompt"] += 1
-            assert self.headers["X-Coworld-Player-Slot"] == "1"
-            response = {"content": [{"type": "text", "text": json.dumps(
-                {"script": PAINTER, "notes": "stub", "banner": "painting"})}],
-                "stop_reason": "end_turn"}
+        requests["prompt"] += 1
+        assert self.headers["X-Coworld-Player-Slot"] == "1"
+        response = {"content": [{"type": "text", "text": json.dumps(
+            {"script": PAINTER, "notes": "stub", "banner": "painting"})}],
+            "stop_reason": "end_turn"}
         encoded = json.dumps(response).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -81,7 +73,7 @@ with tempfile.TemporaryDirectory(prefix="gridwars-policy-") as scratch:
         else:
             raise AssertionError("game socket unavailable")
         for slot, settings in enumerate((
-            {"POC_JEV": "1"},
+            {},
             {"PLAYER_PROMPT": "Paint and survive."},
             {"PLAYER_SCRIPTED": "painter"},
             {"PLAYER_SCRIPTED": "bomber"},
@@ -101,13 +93,13 @@ with tempfile.TemporaryDirectory(prefix="gridwars-policy-") as scratch:
             assert player.wait(timeout=5) == 0, (root / f"player-{slot}.log").read_text()
         results = json.loads((root / "results.json").read_text())
         replay = json.loads((root / "replay.json").read_text())
-        assert requests == {"jev": 2, "prompt": 2}, requests
+        assert requests == {"prompt": 2}, requests
         assert results["reason"] == "complete", results
         submissions = [event for event in replay["events"] if event["kind"] == "submit"]
         assert len(submissions) == 8, len(submissions)
         assert [event["origin"] for event in submissions] == [
             "player", "player", "scripted", "scripted"] * 2, submissions
-        print("Grid Wars player smoke: 2 Jev, 2 prompt, 4 scripted programs, zero fallback")
+        print("Grid Wars player smoke: 2 canned, 2 prompt, 4 scripted programs, zero fallback")
     finally:
         for process in [*players, game]:
             if process.poll() is None:
