@@ -21,6 +21,9 @@ requests = {"prompt": 0}
 class Stub(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        assert self.path == "/v1/messages"
+        assert body["model"] == "anthropic/claude-haiku-4.5"
+        assert "anthropic_version" not in body
         requests["prompt"] += 1
         assert self.headers["X-Coworld-Player-Slot"] == "1"
         response = {"content": [{"type": "text", "text": json.dumps(
@@ -82,7 +85,7 @@ with tempfile.TemporaryDirectory(prefix="gridwars-policy-") as scratch:
             env.update(settings)
             env.update({"COWORLD_PLAYER_WS_URL":
                         f"ws://127.0.0.1:{port}/player?slot={slot}&token=token-{slot}",
-                        "AWS_ENDPOINT_URL_BEDROCK_RUNTIME":
+                        "COWORLD_LLM_ENDPOINT":
                         f"http://127.0.0.1:{model.server_port}"})
             command = [sys.executable, str(ROOT / "players/ordinary/player.py")] if slot == 0 else [PLAYER]
             players.append(subprocess.Popen(command, env=env, cwd=ROOT,
