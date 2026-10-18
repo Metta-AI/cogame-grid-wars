@@ -164,7 +164,9 @@ def main():
                 round_number, seat = key
                 event = submissions[key]
                 assert row["executed_action"] == dict(
-                    script=event["script"], notes=event["text"], banner=event["banner"]
+                    script=event["script"],
+                    notes=event["text"] if "text" in event else "",
+                    banner=event["banner"],
                 )
                 assert (
                     row["origin"] == event["origin"]
