@@ -1,3 +1,4 @@
+import gridwars/prompts
 ## JSONL numeric bridge over native Grid Wars rounds.
 
 import std/[hashes, json, os, strutils]
@@ -10,25 +11,33 @@ var
   decisionId: int
   manifestPath: string
   variant: string
+  textMode: bool
+  selection: PromptSelection
 
 proc currentDecision(): JsonNode =
   let seat = game.pendingSeats()[0]
-  let system = systemPrompt(game, seat)
+  let system = systemPrompt(game, seat, selection)
   let user = userPrompt(game, seat, "")
   %*{"kind": "decision", "game": "grid-wars",
     "decision_id": decisionId, "seat": seat, "engine_seat": seat,
     "turn": game.round,
-    "semantic_view": {"system": system, "user": user},
+    "semantic_view": {"system": system, "user": user, "prompt_template": selection.promptMetadata(system, user)},
     "inbox": [], "messages": [
       {"role": "system", "content": system},
       {"role": "user", "content": user}],
     "speech_messages": [],
-    "action_schema": {"type": "object", "properties": {
+    "action_schema": (if textMode: %*{"type": "object", "required": ["script"],
+      "properties": {"script": {"type": "array"}, "notes": {"type": "string"}, "banner": {"type": "string"}}}
+      else: %*{"type": "object", "properties": {
       "choice": {"type": "integer", "minimum": 0, "maximum": 2}},
-      "required": ["choice"]}, "typed_question": newJNull()}
+      "required": ["choice"]}), "typed_question": newJNull()}
 
 proc reset(command: JsonNode): JsonNode =
   doAssert command["players"].getInt() == Seats
+  selection = promptSelection(command)
+  if command.hasKey("split") and command["split"].getStr() == "train" and
+      selection.selectedVariant in {pvHeldoutBriefing, pvHeldoutReference}:
+    raise newException(ValueError, "held-out wording is evaluation-only")
   let manifest = parseFile(manifestPath)
   var variantConfig = newJNull()
   for entry in manifest["variants"]:
@@ -94,10 +103,11 @@ proc step(command: JsonNode): JsonNode =
   if command["decision_id"].getInt() != decisionId:
     return %*{"kind": "rejected", "reason": "stale decision"}
   let action = parseJson(command["response"].getStr())
-  let choice = action["choice"].getInt()
-  doAssert choice in 0 .. 2
   let seat = game.pendingSeats()[0]
-  let submission = scriptedSubmission(Kinds[choice])
+  let submission = if textMode: parseSubmission(action) else:
+    let choice = action["choice"].getInt()
+    doAssert choice in 0 .. 2
+    scriptedSubmission(Kinds[choice])
   game.submit(seat, submission.script, submission.notes, submission.banner,
     submission.origin)
   inc decisionId
@@ -111,21 +121,22 @@ proc step(command: JsonNode): JsonNode =
     %*{"kind": "terminal", "scores": scores,
       "utilities": utilities}
   else: currentDecision()
-  %*{"kind": "accepted", "action": action, "observation": observation}
+  %*{"kind": "accepted", "action": (if textMode: submissionJson(submission) else: action), "observation": observation}
 
 when isMainModule:
   let args = commandLineParams()
-  if args.len != 2:
-    quit("usage: grid-wars-train-bridge MANIFEST VARIANT", 1)
+  if args.len notin 2 .. 3:
+    quit("usage: grid-wars-train-bridge MANIFEST VARIANT [text]", 1)
   manifestPath = absolutePath(args[0])
   variant = args[1]
+  textMode = args.len == 3 and args[2] == "text"
   doAssert variant in ["standard", "blitz"]
   for line in stdin.lines:
     let command = parseJson(line)
     let response = case command["kind"].getStr()
       of "reset": reset(command)
       of "encode": encode()
-      of "teacher": %*{"response": $(%*{"choice": 0})}
+      of "teacher": %*{"response": $(if textMode: submissionJson(scriptedSubmission(skPainter)) else: %*{"choice": 0})}
       of "step": step(command)
       else: raise newException(ValueError, "unknown command")
     stdout.writeLine($response)

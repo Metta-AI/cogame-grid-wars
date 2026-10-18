@@ -13,7 +13,7 @@
 import
   std/[json, options, os, strutils],
   whisky,
-  gridwars/llm
+  gridwars/[llm, prompts]
 
 const DefaultPrompt = """
 Write a warrior that claims ground and stays alive. Paint every cell you
@@ -80,7 +80,8 @@ when isMainModule:
             try:
               submission = choosePromptSubmission(client,
                 payload["observation"].getStr(), prompt,
-                max(1, payload["timeout_ms"].getInt() div 1000 - 1), slot)
+                max(1, payload["timeout_ms"].getInt() div 1000 - 1), slot, payload["round"].getInt(),
+                promptSelection(payload["prompt_config"]))
             except CatchableError as error:
               echo "grid-wars player: model call failed: ", error.msg
               submission = fallbackSubmission(error.msg)

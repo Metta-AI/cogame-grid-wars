@@ -9,10 +9,10 @@
 ## With no player credential the bundled prompt policy sends sentry fallback.
 
 import
-  std/[json, os, strutils, unicode],
+  std/[json, os, strutils, unicode, times],
   bitworld/runtime,
   curly,
-  sim
+  sim, prompts, evidence
 
 const
   AnthropicUrl = "https://api.anthropic.com/v1/messages"
@@ -262,10 +262,9 @@ TICK RESOLUTION ORDER, every tick:
      when none is.
 """
 
-proc systemPrompt*(sim: Sim, seat: int): string =
-  result.add("You are " & sim.names[seat] & ", warrior id " & $(seat + 1) &
-    " (" & ColorNames[seat] & "), one of four cogs fighting for a 30x30 " &
-    "toroidal grid in Grid Wars.\n\n")
+proc systemPrompt*(sim: Sim, seat: int, selection: PromptSelection): string =
+  result.add(selection.trainingIntroduction(sim.names[seat] & ", warrior id " & $(seat + 1) &
+    " (" & ColorNames[seat] & ")") & "\n\n")
   result.add("""THE GAME
 - You do not move a warrior. You WRITE one: a complete program in GWL, the
   language below. The engine runs it, one action per tick, for the whole
@@ -468,13 +467,16 @@ proc textOf(client: LlmClient, response: Response, error, url: string): string =
     raise newException(GridWarsError, "reply cut off at max_tokens before " &
       "any JSON: " & cutRunes(result, 160).replace("\n", " "))
 
-proc choosePromptSubmission*(client: LlmClient, observation, prompt: string,
-    timeoutSeconds, slot: int): Submission =
-  ## One player-owned model call over the private observation on the wire.
-  let system = "You write one complete GWL warrior program for Grid Wars. " &
+proc nativeSystemPrompt*(selection: PromptSelection): string =
+  selection.nativeIntroduction() & " " &
     "Survive, claim territory, and use the visible rules below. Reply only " &
     "with JSON containing script as an array of lines, notes, and banner.\n\n" &
     TickOrder & "\n" & GwlReference
+
+proc choosePromptSubmission*(client: LlmClient, observation, prompt: string,
+    timeoutSeconds, slot, round: int, selection: PromptSelection): Submission =
+  ## One player-owned model call over the private observation on the wire.
+  let system = selection.nativeSystemPrompt()
   let user = observation & "\n" & operatorBlock(prompt) &
     "\nReply with ONLY {\"script\": [\"GWL line\", ...], " &
     "\"notes\": \"\", \"banner\": \"\"}. The program must loop " &
@@ -482,6 +484,34 @@ proc choosePromptSubmission*(client: LlmClient, observation, prompt: string,
   var request = client.requestFor(system, user, -1)
   if client.transport == ltSidecar:
     request.headers["x-coworld-player-slot"] = $slot
-  let response = client.curl.post(request.url, request.headers, request.body,
-    timeoutSeconds)
-  parseSubmission(extractJsonObject(client.textOf(response, "", request.url)))
+  let destination = getEnv("GRID_WARS_ATTEMPT_TRACE_DIR")
+  let identity = $round & "-" & $slot
+  let started = epochTime()
+  var raw, parsed = newJNull()
+  var text = ""
+  var status = 0
+  var completed = false
+  if destination.len > 0:
+    let model = if client.transport == ltBedrock: client.bedrockModels[client.bedrockModel] else: client.model
+    writePrivate(destination / (identity & ".jsonl"), $(%*{
+      "event_type": "attempt_started", "visibility": "private", "attempt_id": identity,
+      "round": round, "seat": slot, "source_revision": getEnv("GRID_WARS_SOURCE_REVISION"),
+      "prompt": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+      "prompt_template": selection.promptMetadata(system, user),
+      "request": {"transport": $client.transport, "model": model, "body": parseJson(request.body)}}) & "\n")
+  try:
+    let response = client.curl.post(request.url, request.headers, request.body, timeoutSeconds)
+    raw = %response.body
+    status = response.code
+    text = client.textOf(response, "", request.url)
+    parsed = extractJsonObject(text)
+    result = parseSubmission(parsed)
+    completed = true
+  finally:
+    if destination.len > 0:
+      appendPrivate(destination / (identity & ".jsonl"), %*{
+        "event_type": "attempt_finished", "attempt_id": identity, "completed": completed,
+        "raw_response": raw, "response": text, "http_status": status,
+        "parsed_action": parsed, "normalized_action": (if completed: submissionJson(result) else: newJNull()),
+        "latency_ms": int((epochTime() - started) * 1000.0),
+        "platform_call_id": newJNull(), "behavior_logprobs": newJNull()})

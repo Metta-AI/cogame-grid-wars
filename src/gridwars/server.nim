@@ -34,7 +34,7 @@ import
   curly,
   mummy,
   mummy/routers,
-  llm,
+  llm, prompts, evidence,
   sim
 
 const
@@ -50,6 +50,7 @@ const
 
 type
   GameState = object
+    selection: PromptSelection
     config: GameConfig
     sim: Sim
     pendingRound: int
@@ -165,6 +166,9 @@ proc finishEpisode(runtimeConfig: RuntimeConfig) =
       socket.send($final)
     state.broadcastLocked()
 
+  let trace = getEnv("GRID_WARS_HOST_TRACE_PATH")
+  if trace.len > 0:
+    appendPrivate(trace, %*{"event_type": "host_finished", "visibility": "private", "results": results})
   sleep(500)
   echo "grid-wars: writing results and replay"
   writeArtifact(runtimeConfig.resultsUri, $results, "application/json",
@@ -258,7 +262,10 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
                 "type": "turn",
                 "round": currentRound,
                 "timeout_ms": config.actionTimeoutSeconds * 1000,
-                "observation": state.sim.seatObservation(seat)
+                "observation": state.sim.seatObservation(seat),
+                "prompt_config": {"promptVariant": $state.selection.variant, "promptSeed": state.selection.seed},
+                "prompt_selection": state.selection.selectionMetadata(),
+                "prompt_introduction": state.selection.ordinaryIntroduction()
               })
               waitingSeats.add(seat)
         while waitingSeats.len > 0 and epochTime() < decisionDeadline:
@@ -283,6 +290,10 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
 
       var accepted = newSeq[bool](seats.len)
       withLock stateLock:
+        let trace = getEnv("GRID_WARS_HOST_TRACE_PATH")
+        let eventStart = state.sim.events.len
+        var views: seq[string]
+        for seat in seats: views.add(state.sim.seatObservation(seat))
         for index, seat in seats:
           let decision = decisions[index]
           accepted[index] = decision.origin != "fallback"
@@ -300,13 +311,30 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
             state.sim.submit(seat, fallback.script, "", "", "fallback",
               error.msg)
             accepted[index] = false
+        var executionEvents = newJArray()
+        for index in eventStart ..< state.sim.events.len:
+          executionEvents.add(state.sim.events[index].eventToJson())
+        if trace.len > 0:
+          appendPrivate(trace, %*{"event_type": "round_execution", "visibility": "private",
+            "round": currentRound, "events": executionEvents, "state": state.sim.liveStateJson(),
+            "terminal": state.sim.done})
         state.broadcastLocked()
         for index, seat in seats:
+          let installed = %*{"script": state.sim.history[^1].scripts[seat], "notes": state.sim.history[^1].notes[seat],
+            "banner": state.sim.history[^1].banner[seat]}
+          if trace.len > 0:
+            appendPrivate(trace, %*{"event_type": "host_decision", "visibility": "private",
+              "round": currentRound, "seat": seat, "observation": views[index],
+              "prompt_selection": state.selection.selectionMetadata(), "accepted": accepted[index],
+              "proposal": submissionJson(decisions[index]), "executed_action": installed,
+              "origin": state.sim.history[^1].origin[seat], "compile_error": state.sim.history[^1].compileError[seat]})
           if state.playerSockets.hasKey(seat) and
               not forceFallback:
             state.playerSockets[seat].send($ %*{
               "type": "submission_result", "round": currentRound,
-              "accepted": accepted[index]
+              "accepted": accepted[index], "executed_action": installed,
+              "prompt_selection": state.selection.selectionMetadata(),
+              "origin": state.sim.history[^1].origin[seat], "compile_error": state.sim.history[^1].compileError[seat]
             })
 
       if forceFallback:
@@ -468,6 +496,12 @@ proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
   if config.tokens.len != config.players.len:
     raise newException(GridWarsError, "tokens and players must align")
   state.config = config
+  state.selection = promptSelection(if runtimeConfig.config.len > 0: parseJson(runtimeConfig.config) else: newJObject())
+  let trace = getEnv("GRID_WARS_HOST_TRACE_PATH")
+  if trace.len > 0:
+    writePrivate(trace, $(%*{"event_type": "host_started", "visibility": "private",
+      "source_revision": getEnv("GRID_WARS_SOURCE_REVISION"),
+      "prompt_selection": state.selection.selectionMetadata(), "config": %config}) & "\n")
   state.sim = initSim(config)
   state.pendingRound = -1
   state.pendingSubmissions = initTable[int, Submission]()

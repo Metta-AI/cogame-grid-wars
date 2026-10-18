@@ -11,26 +11,44 @@ import websocket
 from capture import Capture
 
 
-def choose(turn: dict, generator) -> tuple[dict, str]:
-    rules_file = Path(os.environ.get("GRIDWARS_RULES_FILE",
-                      Path(__file__).resolve().parents[2] / "docs" / "warrior-language.md"))
-    turn["system"] = "Write one complete GWL warrior program. Reply with " \
-        "JSON containing script as an array of lines, notes, and banner.\n\n" \
-        + rules_file.read_text()
+def choose(turn: dict, generator, artifact) -> tuple[dict, str]:
+    rules_file = Path(
+        os.environ.get(
+            "GRIDWARS_RULES_FILE",
+            Path(__file__).resolve().parents[2] / "docs" / "warrior-language.md",
+        )
+    )
+    turn["system"] = turn["prompt_introduction"] + "\n\n" + rules_file.read_text()
     turn["user"] = turn["observation"] + "\n" + os.environ.get("PLAYER_PROMPT", "")
-    warrior_dir = Path(os.environ.get("GRIDWARS_WARRIOR_DIR",
-                              Path(__file__).resolve().parents[2] / "data" / "warriors"))
+    warrior_dir = Path(
+        os.environ.get(
+            "GRIDWARS_WARRIOR_DIR",
+            Path(__file__).resolve().parents[2] / "data" / "warriors",
+        )
+    )
+    if artifact:
+        artifact.begin(turn, "trained" if generator else "canned")
     if generator:
-        completion = generator([
-            {"role": "system", "content": turn["system"]},
-            {"role": "user", "content": turn["user"]},
-        ])
+        completion = generator(
+            [
+                {"role": "system", "content": turn["system"]},
+                {"role": "user", "content": turn["user"]},
+            ]
+        )
+        if artifact:
+            artifact.response(turn["round"], completion)
         action = json.loads(completion)
         if not isinstance(action, dict):
             raise ValueError("trained Grid Wars submission must be a JSON object")
         return action, "trained"
-    return {"script": (warrior_dir / "painter.gwl").read_text().splitlines(),
-            "notes": "", "banner": ""}, "canned"
+    action = {
+        "script": (warrior_dir / "painter.gwl").read_text().splitlines(),
+        "notes": "",
+        "banner": "",
+    }
+    if artifact:
+        artifact.response(turn["round"], json.dumps(action))
+    return action, "canned"
 
 
 def main() -> None:
@@ -43,7 +61,11 @@ def main() -> None:
 
         generator = TransformersGenerator(Path(adapter))
     backend = "trained" if adapter else "canned"
-    artifact = Capture(slot, backend) if os.environ.get("POC_CAPTURE_TRAINING") == "1" else None
+    artifact = (
+        Capture(slot, backend)
+        if os.environ.get("POC_CAPTURE_TRAINING") == "1"
+        else None
+    )
     socket = websocket.create_connection(url, timeout=60)
     socket.settimeout(None)
     pending: dict[int, tuple[dict, dict, str]] = {}
@@ -56,15 +78,22 @@ def main() -> None:
         frame = json.loads(data)
         kind = frame["type"]
         if kind == "turn":
-            action, source = choose(frame, generator)
+            action, source = choose(frame, generator, artifact)
             pending[frame["round"]] = (frame, action, source)
-            socket.send(json.dumps({"type": "submission", "round": frame["round"],
-                                    "source": "player", "action": action}))
+            socket.send(
+                json.dumps(
+                    {
+                        "type": "submission",
+                        "round": frame["round"],
+                        "source": "player",
+                        "action": action,
+                    }
+                )
+            )
         elif kind == "submission_result":
             turn, action, source = pending.pop(frame["round"])
-            if artifact and frame["accepted"]:
-                artifact.record(turn["system"], turn["user"], action, source,
-                                frame["round"])
+            if artifact:
+                artifact.acknowledge(frame)
         elif kind == "final":
             if pending:
                 raise RuntimeError("Grid Wars ended with unacknowledged decisions")
@@ -72,8 +101,9 @@ def main() -> None:
                 artifact.upload(frame["scores"])
             break
     socket.close()
-    print(f"Grid Wars ordinary player finished: slot={slot} backend={backend}",
-          flush=True)
+    print(
+        f"Grid Wars ordinary player finished: slot={slot} backend={backend}", flush=True
+    )
 
 
 if __name__ == "__main__":

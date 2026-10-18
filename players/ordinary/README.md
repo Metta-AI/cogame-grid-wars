@@ -10,7 +10,7 @@ docker build --platform linux/amd64 -f Dockerfile.ordinary-player -t gridwars-pl
 uv run coworld run-episode /path/to/coworld_manifest.json --timeout-seconds 120 -o /tmp/gridwars-ordinary
 ```
 
-Set `POC_CAPTURE_TRAINING=1` and `POC_SOURCE_REVISION=<policy commit>` to upload accepted submissions through the standard Coworld artifact URL. Capture complete games with different seeds and export them:
+Set `POC_CAPTURE_TRAINING=1` and `POC_SOURCE_REVISION=<policy commit>` to upload private attempts and host execution acknowledgements through the standard Coworld artifact URL. Capture complete games with different seeds and export them:
 
 ```bash
 python players/ordinary/export.py /tmp/gridwars-dataset /tmp/gridwars-runs --source-revision <policy-commit>
@@ -19,7 +19,7 @@ uv run --package metta-posttrain --extra train python -m metta_posttrain.train \
   --device cpu --max-steps 100 --max-length 4096 --max-eval-examples 128
 ```
 
-The existing `tools/export_posttrain.nim` also exports complete scripted games without containers. The artifact exporter admits only completed games, accepted programs, a matching source revision, and separate whole-game seed splits.
+The existing `tools/export_posttrain.nim` also exports complete scripted games without containers. The artifact exporter requires ten completed games, all four seats, and a matching source revision. It retains rejected or normalized actions as fallback evidence. Independent review in the shared importer owns training admission and seed-family splits. See [prompt and capture configuration](../../docs/TRAINING.md).
 
 Package the base and adapter into a separate player image:
 

@@ -1,34 +1,65 @@
-# Grid Wars training
+# Grid Wars prompt diversity and candidates
 
-The exporter plays ten complete native series per certified variant. It
-records each seat's exact hosted system and user prompts, plus a complete
-Grid Warrior Language (GWL) program accepted by the production parser.
-All four seats submit before the native battle resolves. Train and
-validation sets split complete series by seed.
+`promptVariant` selects one introduction for the complete episode. Training
+wordings are `canonical`, `plain`, `numbered`, `questions`, and `reordered`.
+Evaluation also accepts `heldout-briefing` and `heldout-reference`. `mixed`
+requires an independent nonnegative `promptSeed` and selects seed modulo five.
+Selection never consumes simulation randomness or changes between rounds.
+
+The `grid-wars-rules-v1` bank preserves each canonical surface: native player,
+ordinary Python player, and training rules. GWL semantics, tick resolution,
+scoring, operator strategy, private views, and published budgets remain fixed.
+The host delivers wording configuration privately; capture hashes the actual
+rendered messages. Other seats' programs and notes remain sealed.
+
+## Private evidence
+
+`GRID_WARS_ATTEMPT_TRACE_DIR` records actual native requests without credentials,
+raw responses, parse results, and failures. `GRID_WARS_HOST_TRACE_PATH` records
+private observations, proposals, installed programs, completed round events,
+and final results. Set `GRID_WARS_SOURCE_REVISION` to the deployed source SHA.
+Evidence files use mode 0600 and are not published to spectators.
+
+Ordinary capture (`POC_CAPTURE_TRAINING=1`) journals attempts before generation,
+raw completions before parsing, and host execution acknowledgements. Its
+artifact retains unsuccessful submissions instead of turning them into labels.
+Incomplete attempts remain incomplete evidence.
+
+## Complete candidate export
+
+Build and run from a clean, committed checkout:
 
 ```sh
-nim c -d:release --path:src -o:/tmp/grid-wars-posttrain tools/export_posttrain.nim
-/tmp/grid-wars-posttrain /tmp/grid-wars-data 10 standard
+nim c -d:release --path:src -o:/outside/checkout/export_posttrain tools/export_posttrain.nim
+/outside/checkout/export_posttrain /private/new-candidates 10 standard plain 0
 ```
 
-The other certified variant is `blitz`. The output has `train.jsonl`,
-`validation.jsonl`, and a manifest with source revision, seeds, complete
-rounds, scores, and row counts. Ten series yielded 160/40 standard and
-96/24 blitz train/validation decisions.
+Both `standard` and `blitz` retain their published round and tick limits.
+Exports stream `trajectories.jsonl`, paired execution events, seeded replays,
+and a manifest. The shared Coworld importer owns independent review and labels.
+There are no automatic training/validation files. The `grid-wars-SEED` family
+keeps mode and wording replicas together. Held-out training export is rejected.
 
-From a Metta checkout with the post-training package installed:
+The ordinary exporter also emits private candidates and requires at least ten
+complete captured games, all four seats, and matching source revisions. See
+[ordinary player instructions](../players/ordinary/README.md).
+
+The bridge accepts an optional third argument `text` for complete program,
+notes, and banner actions. Numeric callers retain their existing interface.
 
 ```sh
-uv run --package metta-posttrain --extra train python -m metta_posttrain.train \
-  --dataset /tmp/grid-wars-data --output /tmp/grid-wars-adapter \
-  --model Qwen/Qwen3-0.6B --max-steps 100 --max-length 4096
+python3 tools/test_prompt_games.py /absolute/train_bridge
+python3 tools/test_training.py /absolute/export_posttrain /absolute/train_bridge
 ```
 
-The [ordinary player](../players/ordinary/README.md) can capture accepted
-programs from complete local episodes through the standard Coworld policy
-artifact URL. Its exporter splits by whole series seed. The same player can
-load a trained adapter
-and submit through `gridwars.player.v2`.
+These complete workflows check message hashes, private notes, canonical numeric
+behavior, and wording-invariant actions and outcomes. They do not establish
+stronger model play. Compare canonical-only and five-wording training with the
+same initialization, decision budget, optimizer, seeds, and opponents. Freeze
+training choices before evaluating held-out wordings. Report score and wording
+spread, invalid programs, fallbacks, and incomplete games separately. Inspect
+paired regressions and private-information exposure. Production inference and
+matched learning comparisons remain unrun.
 
 ## Numeric reinforcement learning
 

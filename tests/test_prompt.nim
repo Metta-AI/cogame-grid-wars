@@ -1,3 +1,4 @@
+import gridwars/prompts
 ## Sealing and redaction. A seat's prompt carries its own script and its
 ## own diagnostics and NOTHING of anyone else's: no other seat's source, no
 ## other seat's notes or banner, no policy name, and not the round seed.
@@ -98,7 +99,7 @@ suite "the seat observation":
   test "no prompt ever contains a policy name":
     let sim = played(fixture(), 2)
     for seat in 0 ..< Seats:
-      let system = systemPrompt(sim, seat)
+      let system = systemPrompt(sim, seat, PromptSelection())
       let user = userPrompt(sim, seat, "your operator prompt goes here")
       for other in 0 ..< Seats:
         check ("SECRETPOLICY" & $(other + 1)) notin system
@@ -109,7 +110,7 @@ suite "the seat observation":
   test "no prompt ever contains the round seed or the spawn permutation":
     let sim = played(fixture(), 2)
     for seat in 0 ..< Seats:
-      let text = systemPrompt(sim, seat) & "\n" &
+      let text = systemPrompt(sim, seat, PromptSelection()) & "\n" &
         userPrompt(sim, seat, "operator")
       for round in 1 .. sim.config.rounds:
         check $sim.roundSeed(round) notin text
@@ -126,7 +127,7 @@ suite "the seat observation":
 
   test "the system prompt is the rules and the full language reference":
     let sim = played(fixture(), 1)
-    let text = systemPrompt(sim, 1)
+    let text = systemPrompt(sim, 1, PromptSelection())
     check sim.names[1] in text
     check "warrior id 2" in text
     check "blue" in text
