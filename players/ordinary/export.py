@@ -33,7 +33,7 @@ def export(runs: list[Path], output: Path, revision: str, source: str) -> dict:
             artifacts = sorted(run.glob("policy_artifact_*.zip"))
             if len(artifacts) != 4:
                 raise ValueError(f"capture every seat in {run}")
-            rows = []
+            rows: list[dict] = []
             for artifact in artifacts:
                 slot = int(artifact.stem.removeprefix("policy_artifact_"))
                 with zipfile.ZipFile(artifact) as archive:
