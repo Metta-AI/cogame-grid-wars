@@ -1,65 +1,51 @@
-# Grid Wars prompt diversity and candidates
+# Grid Wars prompt diversity
 
-`promptVariant` selects one introduction for the complete episode. Training
-wordings are `canonical`, `plain`, `numbered`, `questions`, and `reordered`.
-Evaluation also accepts `heldout-briefing` and `heldout-reference`. `mixed`
-requires an independent nonnegative `promptSeed` and selects seed modulo five.
-Selection never consumes simulation randomness or changes between rounds.
+The `grid-wars-rules-v2` bank explains program execution, territory, energy,
+bombs, elimination, visibility, and scoring in five training presentations:
+`canonical`, `plain`, `numbered`, `questions`, and `reordered`. Two evaluation
+presentations are `heldout-briefing` and `heldout-reference`.
 
-The `grid-wars-rules-v1` bank preserves each canonical surface: native player,
-ordinary Python player, and training rules. GWL semantics, tick resolution,
-scoring, operator strategy, private views, and published budgets remain fixed.
-The host delivers wording configuration privately; capture hashes the actual
-rendered messages. Other seats' programs and notes remain sealed.
+`mixed` requires an independent nonnegative `promptSeed`, selecting seed modulo
+five. Selection stays fixed throughout the episode without consuming game
+randomness. GWL syntax, reply grammar, operator strategy, and published budgets
+stay fixed. Training rejects held-out presentations.
 
-## Private evidence
+The bridge preserves canonical training messages. Native and ordinary players
+now also receive the complete game briefing, including scoring. The game sends
+the ordinary system message, so deploy the game and players together.
 
-`GRID_WARS_ATTEMPT_TRACE_DIR` records actual native requests without credentials,
-raw responses, parse results, and failures. `GRID_WARS_HOST_TRACE_PATH` records
-private observations, proposals, installed programs, completed round events,
-and final results. Set `GRID_WARS_SOURCE_REVISION` to the deployed source SHA.
-Evidence files use mode 0600 and are not published to spectators.
-
-Ordinary capture (`POC_CAPTURE_TRAINING=1`) journals attempts before generation,
-raw completions before parsing, and host execution acknowledgements. Its
-artifact retains unsuccessful submissions instead of turning them into labels.
-Incomplete attempts remain incomplete evidence.
-
-## Complete candidate export
-
-Build and run from a clean, committed checkout:
+## Complete training exports
 
 ```sh
 nim c -d:release --path:src -o:/outside/checkout/export_posttrain tools/export_posttrain.nim
-/outside/checkout/export_posttrain /private/new-candidates 10 standard plain 0
+/outside/checkout/export_posttrain /private/new-dataset 10 standard mixed 0
 ```
 
-Both `standard` and `blitz` retain their published round and tick limits.
-Exports stream `trajectories.jsonl`, paired execution events, seeded replays,
-and a manifest. The shared Coworld importer owns independent review and labels.
-There are no automatic training/validation files. The `grid-wars-SEED` family
-keeps mode and wording replicas together. Held-out training export is rejected.
+The exporter retains its original train.jsonl, validation.jsonl, and manifest
+format. Mixed exports cycle wordings between games. Seed families use
+`grid-wars-SEED` across modes and wordings; every fifth game is validation.
+Messages carry selection metadata and hashes. Both published variants retain
+full round and tick budgets.
 
-The ordinary exporter also emits private candidates and requires at least ten
-complete captured games, all four seats, and matching source revisions. See
-[ordinary player instructions](../players/ordinary/README.md).
+Ordinary capture retains accepted decisions in the existing version-one
+artifact. New decisions include prompt metadata; the exporter still reads
+existing stored artifacts without it. Held-out metadata is rejected for
+training. See [ordinary player instructions](../players/ordinary/README.md).
 
-The bridge accepts an optional third argument `text` for complete program,
-notes, and banner actions. Numeric callers retain their existing interface.
+The bridge accepts an optional third argument `text` for complete programs,
+notes, and banners. Numeric callers retain their existing interface.
 
 ```sh
 python3 tools/test_prompt_games.py /absolute/train_bridge
 python3 tools/test_training.py /absolute/export_posttrain /absolute/train_bridge
 ```
 
-These complete workflows check message hashes, private notes, canonical numeric
-behavior, and wording-invariant actions and outcomes. They do not establish
-stronger model play. Compare canonical-only and five-wording training with the
-same initialization, decision budget, optimizer, seeds, and opponents. Freeze
-training choices before evaluating held-out wordings. Report score and wording
-spread, invalid programs, fallbacks, and incomplete games separately. Inspect
-paired regressions and private-information exposure. Production inference and
-matched learning comparisons remain unrun.
+These workflows check complete games, unchanged actions/outcomes, private
+notes, and message hashes. They do not demonstrate stronger learned play.
+Compare canonical-only and mixed training with identical initialization,
+optimizer, decision budget, opponents, and scenario families. Freeze training
+choices before held-out evaluation. Report score spread, invalid programs,
+fallbacks, and incomplete games; inspect paired regressions.
 
 ## Numeric reinforcement learning
 

@@ -80,7 +80,7 @@ when isMainModule:
             try:
               submission = choosePromptSubmission(client,
                 payload["observation"].getStr(), prompt,
-                max(1, payload["timeout_ms"].getInt() div 1000 - 1), slot, payload["round"].getInt(),
+                max(1, payload["timeout_ms"].getInt() div 1000 - 1), slot,
                 promptSelection(payload["prompt_config"]))
             except CatchableError as error:
               echo "grid-wars player: model call failed: ", error.msg

@@ -197,9 +197,6 @@ jobs:
           python3 tools/test_training.py /tmp/grid-wars-posttrain \
             /tmp/grid-wars-train-bridge
           python3 tools/test_prompt_games.py /tmp/grid-wars-train-bridge
-          nim c --parallelBuild:1 -d:release --path:src -o:"$RUNNER_TEMP/verify-replay" tools/verify_replay.nim
-          uv run --no-project --with websocket-client==1.8.0 python tools/test_capture_games.py \
-            /tmp/gridwars-policy-game /tmp/gridwars-policy-player "$RUNNER_TEMP/verify-replay" "$RUNNER_TEMP/native-capture" --smoke
 
   # ---------------------------------------------------------------------
   # Packaging smoke: the production image builds, and one real episode runs

@@ -9,10 +9,10 @@
 ## With no player credential the bundled prompt policy sends sentry fallback.
 
 import
-  std/[json, os, strutils, unicode, times],
+  std/[json, os, strutils, unicode],
   bitworld/runtime,
   curly,
-  sim, prompts, evidence
+  sim, prompts
 
 const
   AnthropicUrl = "https://api.anthropic.com/v1/messages"
@@ -265,35 +265,7 @@ TICK RESOLUTION ORDER, every tick:
 proc systemPrompt*(sim: Sim, seat: int, selection: PromptSelection): string =
   result.add(selection.trainingIntroduction(sim.names[seat] & ", warrior id " & $(seat + 1) &
     " (" & ColorNames[seat] & ")") & "\n\n")
-  result.add("""THE GAME
-- You do not move a warrior. You WRITE one: a complete program in GWL, the
-  language below. The engine runs it, one action per tick, for the whole
-  battle. You get to rewrite it between rounds and nothing else.
-- x and y wrap: the board is a torus, 30 by 30.
-- Every cell has an owner (0 unclaimed, else a warrior id), at most one
-  live bomb, and a permanent corpse flag. place() claims the cell you
-  stand on, overwriting whoever owned it.
-- You start with 12 energy and gain 1 + tiles div 60 each tick, capped at
-  60. bomb() costs BOMBCOST energy. A live bomb is a WALL as well as a
-  weapon: nobody can walk into it.
-- A bomb is planted with a fuse of MAXFUSE (5) and its fuse drops by 1 in
-  the SAME tick it was planted, so a bomb planted on tick t detonates on
-  tick t+4 — five ticks of life counting the one it was planted on. The
-  blast is a plus of 5 cells that wraps. Every cell in the blast loses its owner; every warrior in it dies
-  and leaves a permanent corpse. Bombs caught in a blast chain.
-- 50 ticks without changing cell kills you. So does a fault.
-- When a warrior dies, EVERY tile it owned reverts to unclaimed at once.
-
-SCORING (zero-sum, higher is better, the four scores sum to zero)
-  raw        = tiles + 100 if alive at the end + 50 per kill - 50 per self-kill
-  roundScore = raw - (the four raws) / 4
-  score      = the mean roundScore over the rounds played
-Territory is the score, but survival is worth 100 tiles and a dead warrior
-owns nothing.
-
-You never see another warrior's source code, before or after a round. You
-see the board, and you can infer.
-""")
+  result.add(selection.rulesBriefing())
   result.add("\n" & TickOrder & "\n" & GwlReference & "\n")
   result.add("""
 OUTPUT FORMAT: reply with ONLY one JSON object, nothing else — no analysis,
@@ -471,11 +443,16 @@ proc nativeSystemPrompt*(selection: PromptSelection): string =
   selection.nativeIntroduction() & " " &
     "Survive, claim territory, and use the visible rules below. Reply only " &
     "with JSON containing script as an array of lines, notes, and banner.\n\n" &
-    TickOrder & "\n" & GwlReference
+    selection.rulesBriefing() & "\n" & TickOrder & "\n" & GwlReference
+
+const OrdinaryReference = staticRead("../../docs/warrior-language.md")
+
+proc ordinarySystemPrompt*(selection: PromptSelection): string =
+  selection.ordinaryIntroduction() & "\n\n" & selection.rulesBriefing() & "\n" &
+    OrdinaryReference
 
 proc choosePromptSubmission*(client: LlmClient, observation, prompt: string,
-    timeoutSeconds, slot, round: int, selection: PromptSelection): Submission =
-  ## One player-owned model call over the private observation on the wire.
+    timeoutSeconds, slot: int, selection: PromptSelection): Submission =
   let system = selection.nativeSystemPrompt()
   let user = observation & "\n" & operatorBlock(prompt) &
     "\nReply with ONLY {\"script\": [\"GWL line\", ...], " &
@@ -484,34 +461,6 @@ proc choosePromptSubmission*(client: LlmClient, observation, prompt: string,
   var request = client.requestFor(system, user, -1)
   if client.transport == ltSidecar:
     request.headers["x-coworld-player-slot"] = $slot
-  let destination = getEnv("GRID_WARS_ATTEMPT_TRACE_DIR")
-  let identity = $round & "-" & $slot
-  let started = epochTime()
-  var raw, parsed = newJNull()
-  var text = ""
-  var status = 0
-  var completed = false
-  if destination.len > 0:
-    let model = if client.transport == ltBedrock: client.bedrockModels[client.bedrockModel] else: client.model
-    writePrivate(destination / (identity & ".jsonl"), $(%*{
-      "event_type": "attempt_started", "visibility": "private", "attempt_id": identity,
-      "round": round, "seat": slot, "source_revision": getEnv("GRID_WARS_SOURCE_REVISION"),
-      "prompt": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-      "prompt_template": selection.promptMetadata(system, user),
-      "request": {"transport": $client.transport, "model": model, "body": parseJson(request.body)}}) & "\n")
-  try:
-    let response = client.curl.post(request.url, request.headers, request.body, timeoutSeconds)
-    raw = %response.body
-    status = response.code
-    text = client.textOf(response, "", request.url)
-    parsed = extractJsonObject(text)
-    result = parseSubmission(parsed)
-    completed = true
-  finally:
-    if destination.len > 0:
-      appendPrivate(destination / (identity & ".jsonl"), %*{
-        "event_type": "attempt_finished", "attempt_id": identity, "completed": completed,
-        "raw_response": raw, "response": text, "http_status": status,
-        "parsed_action": parsed, "normalized_action": (if completed: submissionJson(result) else: newJNull()),
-        "latency_ms": int((epochTime() - started) * 1000.0),
-        "platform_call_id": newJNull(), "behavior_logprobs": newJNull()})
+  let response = client.curl.post(request.url, request.headers, request.body,
+    timeoutSeconds)
+  parseSubmission(extractJsonObject(client.textOf(response, "", request.url)))
