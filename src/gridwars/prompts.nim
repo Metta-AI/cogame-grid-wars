@@ -167,3 +167,4 @@ Other death conditions: fault, or 50 ticks without changing cell. Survival benef
 Raw points: tiles + (100 if alive at round end) + 50 per kill - 50 per self-kill. roundScore: raw minus the mean raw of four warriors. Final score: mean roundScore over played rounds, higher preferred. Sum of four scores: zero. Territory after death: none."""
   of pvCanonical, pvMixed:
     raise newException(ValueError, "wording must resolve")
+  result.add("\n")
