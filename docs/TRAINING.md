@@ -1,9 +1,10 @@
 # Grid Wars prompt diversity
 
-The `grid-wars-rules-v2` bank explains program execution, territory, energy,
+The `grid-wars-rules-v3` bank explains program execution, territory, energy,
 bombs, elimination, visibility, and scoring in five training presentations:
 `canonical`, `plain`, `numbered`, `questions`, and `reordered`. Two evaluation
-presentations are `heldout-briefing` and `heldout-reference`.
+presentations are `heldout-briefing` and `heldout-reference`. Each alternative
+uses independently phrased explanations; canonical and plain messages are unchanged.
 
 `mixed` requires an independent nonnegative `promptSeed`, selecting seed modulo
 five. Selection stays fixed throughout the episode without consuming game

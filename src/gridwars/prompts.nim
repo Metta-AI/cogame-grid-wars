@@ -17,7 +17,7 @@ type
     seed*: int
 
 const
-  PromptBankVersion* = "grid-wars-rules-v2"
+  PromptBankVersion* = "grid-wars-rules-v3"
 
 proc promptSelection*(node: JsonNode): PromptSelection =
   if node.kind != JObject:
@@ -138,21 +138,32 @@ proc rulesBriefing*(selection: PromptSelection): string =
   of pvPlain:
     result = programming & "\n\n" & territory & "\n\n" & bombs & "\n\n" & survival & "\n\n" & scoring
   of pvNumbered:
-    result = "1. Program and information\n" & programming & "\n2. Claiming cells\n" & territory &
-      "\n3. Resources and explosions\n" & bombs & "\n4. Staying alive\n" & survival & "\n5. Payoff\n" & scoring
+    result = """1. Submit a complete GWL warrior. During battle the engine executes one action each tick; you can rewrite the program only between rounds. The 30x30 grid wraps along both axes. You see the board, but rival source code is hidden before and after each round, so infer behavior from the board.
+2. Each cell records an owner (0 means unclaimed; other values identify warriors), at most one live bomb, and a permanent corpse flag. place() changes your current cell's owner to you. A warrior's death immediately clears all its owned cells.
+3. Start with 12 energy. Each tick adds 1 + tiles div 60, up to a cap of 60. Planting with bomb() costs BOMBCOST. Live bombs are impassable. MAXFUSE is 5 and includes the planting tick: a bomb planted at t detonates at t+4. Its wrapping five-cell plus blast removes ownership, kills occupants and leaves permanent corpses; hit bombs chain.
+4. A fault kills the warrior, as does remaining in the same cell for 50 ticks. Staying alive also keeps your territory and earns the end bonus.
+5. Raw round points equal tiles + (100 if alive at the end) + 50 per kill - 50 per self-kill. Subtract the average raw points of the four warriors to obtain roundScore. Final score averages roundScore over played rounds. Higher wins; the four scores sum to zero. Dead warriors own no tiles."""
   of pvQuestions:
-    result = "What can you control and observe?\n" & programming & "\nHow do you score?\n" & scoring &
-      "\nWhat does claiming do?\n" & territory & "\nHow do bombs work?\n" & bombs & "\nWhat kills you?\n" & survival
+    result = """What do you control? A complete GWL warrior program, executed one action per tick throughout battle. Rewrite it between rounds; there is no intervention during battle. Where does it run? On a 30x30 grid wrapping in x and y. What can you learn about rivals? Their source stays hidden before and after rounds; infer from the visible board.
+What belongs to a cell? An owner, with 0 for unclaimed and warrior ids otherwise, at most one live bomb, and a permanent corpse flag. How do you claim it? place() overwrites ownership beneath you. What happens on death? Every cell owned by that warrior becomes unclaimed immediately.
+How is energy supplied? You begin at 12 and gain 1 + tiles div 60 per tick, never exceeding 60. What does bomb() spend? BOMBCOST. Can you enter a live bomb's cell? No. When does it explode? MAXFUSE is 5, counting the planting tick, so planting at t means explosion at t+4. What does the blast do? Its wrapping center and four cardinal neighbors lose ownership; occupants die and leave permanent corpses, and other bombs chain.
+What else kills a warrior? A fault or 50 ticks without changing cells. Why survive? To retain territory and receive the end bonus.
+How are points computed? Raw = tiles + (100 if alive at the end) + 50 per kill - 50 per self-kill. roundScore subtracts the four-warrior mean raw score. Final score is the mean roundScore across played rounds. Higher is better, the four scores total zero, and a dead warrior has no territory."""
   of pvReordered:
-    result = "PAYOFF\n" & scoring & "\nSURVIVAL\n" & survival & "\nBOMBS AND ENERGY\n" & bombs &
-      "\nOWNERSHIP\n" & territory & "\nPROGRAMMING AND VISIBILITY\n" & programming
+    result = """Maximize your mean roundScore across the rounds played. For a round, calculate raw points as tiles + (100 if alive at the end) + 50 per kill - 50 per self-kill, then subtract the mean raw points of all four warriors. Their scores sum to zero. Death removes all of that warrior's territory immediately, so survival preserves tiles as well as its 100-point end bonus.
+A fault or 50 ticks without moving to a different cell causes death. Energy begins at 12, grows by 1 + tiles div 60 each tick and caps at 60. bomb() consumes BOMBCOST. A live bomb blocks entry. Its MAXFUSE of 5 counts the planting tick; a bomb placed at t goes off at t+4. The blast wraps over the center and four orthogonal neighbors, clears their owners, kills occupants leaving permanent corpses, and chains into other bombs.
+Cells contain an owner (0 unclaimed, otherwise a warrior id), no more than one live bomb, and a permanent corpse flag. place() takes ownership of the cell beneath you, replacing its previous owner.
+The arena is a 30x30 torus, wrapping in both coordinates. Submit a complete GWL program: the engine runs one action per tick for the battle, and you may replace it only between rounds. Rival source code is never shown, even after a round. Use the visible board to infer what rival warriors do."""
   of pvHeldoutBriefing:
-    result = "Before submitting your warrior, understand its execution contract:\n" & programming &
-      "\nThe battle then applies these resource and hazard rules:\n" & bombs & "\n" & survival &
-      "\nTerritory persists subject to these ownership rules:\n" & territory & "\nAfter each battle, accounting is:\n" & scoring
+    result = """Prepare a complete GWL program before battle. Once battle starts, the engine advances it at one action per tick; your next opportunity to rewrite is between rounds. The arena spans 30 by 30 cells with both coordinates wrapping. Opponents' programs remain secret before and after play, leaving the visible board as evidence of their behavior.
+Claim the cell you occupy with place(), replacing any previous owner. A cell stores owner 0 when unclaimed or a warrior id when claimed, plus at most one live bomb and a permanent corpse flag. If a warrior dies, all of its territory is immediately unclaimed.
+Your energy reserve starts at 12. The per-tick refill is 1 + tiles div 60 and capacity is 60. A bomb costs BOMBCOST to plant and blocks passage while live. MAXFUSE is 5 including the planting tick, giving detonation at t+4 for planting at t. Its blast covers a wrapping plus of five cells. Those cells lose ownership, warriors caught there die leaving permanent corpses, and bombs caught there detonate in a chain.
+Avoid faults and spending 50 ticks in one cell: either kills your warrior. Survival retains territory and contributes an end-of-round bonus. Raw points are tiles + 100 if still alive at the end + 50 for each kill - 50 for each self-kill. The roundScore is your raw points minus the four warriors' mean raw points. Average roundScore over played rounds for the final score; higher wins and the four scores sum to zero. A dead warrior has no territory."""
   of pvHeldoutReference:
-    result = "Scoring reference: " & scoring & "\nOwnership reference: " & territory &
-      "\nExecution reference: " & programming & "\nElimination reference: " & survival & "\nResource reference: " & bombs
+    result = """Execution: one complete GWL warrior program; one action per tick; changes allowed between rounds only. Arena: 30x30, wrapping along x and y. Information: board visible; other warriors' source never visible, including after a round; behavior can be inferred from the board.
+Cell record: owner 0 for unclaimed or a warrior id, zero or one live bomb, permanent corpse flag. Claim operation: place() replaces the owner of the occupied cell. Death consequence: all cells owned by the dead warrior immediately become unclaimed.
+Energy: initial 12; tick income 1 + tiles div 60; maximum 60. Planting cost: BOMBCOST via bomb(). Live-bomb cells: impassable. Fuse: MAXFUSE=5, with planting tick included, hence t+4 detonation for a t planting. Blast: wrapping center plus four orthogonal neighbors; ownership cleared, occupants killed with permanent corpses, other bombs triggered in chains.
+Other death conditions: fault, or 50 ticks without changing cell. Survival benefits: retained territory and end bonus.
+Raw points: tiles + (100 if alive at round end) + 50 per kill - 50 per self-kill. roundScore: raw minus the mean raw of four warriors. Final score: mean roundScore over played rounds, higher preferred. Sum of four scores: zero. Territory after death: none."""
   of pvCanonical, pvMixed:
     raise newException(ValueError, "wording must resolve")
-  result.add("\n")

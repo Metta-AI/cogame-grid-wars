@@ -51,7 +51,7 @@ def play(binary, variant, seed, wording="canonical", prompt_seed=0, text=False):
             view = observation["semantic_view"].copy()
             if binary == BRIDGE:
                 metadata = view.pop("prompt_template")
-                assert metadata["bank"] == "grid-wars-rules-v2"
+                assert metadata["bank"] == "grid-wars-rules-v3"
                 assert metadata["variant"] == (WORDINGS[prompt_seed % 5] if wording == "mixed" else wording)
                 for message in observation["messages"]:
                     assert (
