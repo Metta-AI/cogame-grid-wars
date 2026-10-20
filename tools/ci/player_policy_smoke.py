@@ -25,7 +25,8 @@ class Stub(BaseHTTPRequestHandler):
         assert self.path == "/v1/messages"
         assert body["model"] == "anthropic/claude-haiku-4.5"
         assert "anthropic_version" not in body
-        assert "PAYOFF" in body["system"] and "50 per self-kill" in body["system"]
+        assert "Maximize your mean roundScore across the rounds played." in body["system"]
+        assert "50 per self-kill" in body["system"]
         requests["prompt"] += 1
         assert self.headers["X-Coworld-Player-Slot"] == "1"
         response = {"content": [{"type": "text", "text": json.dumps(
@@ -110,7 +111,7 @@ with tempfile.TemporaryDirectory(prefix="gridwars-policy-") as scratch:
         assert len(trajectory["decisions"]) == 2
         for decision in trajectory["decisions"]:
             assert decision["prompt_template"]["variant"] == "reordered"
-            assert "PAYOFF" in decision["prompt"][0]["content"]
+            assert "Maximize your mean roundScore across the rounds played." in decision["prompt"][0]["content"]
         print("Grid Wars player smoke: 2 canned, 2 prompt, 4 scripted programs, zero fallback")
     finally:
         for process in [*players, game]:
