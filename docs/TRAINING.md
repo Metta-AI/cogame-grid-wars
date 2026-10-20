@@ -23,7 +23,8 @@ nim c -d:release --path:src -o:/outside/checkout/export_posttrain tools/export_p
 
 The exporter retains its original train.jsonl, validation.jsonl, and manifest
 format. Mixed exports cycle wordings independently within training and validation.
-Episode IDs include wording to distinguish matched collections. Seed families use
+Episode IDs include requested selection, resolved wording, and prompt seed
+to distinguish matched collections. Seed families use
 `grid-wars-SEED` across modes and wordings; every fifth game is validation.
 Messages carry selection metadata and hashes. Both published variants retain
 full round and tick budgets.

@@ -56,7 +56,7 @@ when isMainModule:
         doAssert accepted.script == script
         rows.add($(%*{
           "episode_id": "grid-wars-" & variant & "-" & $seed & "-" &
-            selection.selectionMetadata()["variant"].getStr(),
+            $selection.variant & "-" & $selection.selectedVariant & "-" & $selection.seed,
           "seed": "grid-wars-" & $seed,
           "prompt_template": selection.promptMetadata(systemPrompt(snapshot, seat, selection), userPrompt(snapshot, seat, "")),
           "decision_id": rows.len,
