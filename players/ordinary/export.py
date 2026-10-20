@@ -3,26 +3,29 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import zipfile
 from pathlib import Path
 
 
-def export(runs: list[Path], output: Path, revision: str, source: str,
-           validation_modulus: int = 5) -> dict:
+def export(
+    runs: list[Path],
+    output: Path,
+    revision: str,
+    source: str,
+    validation_modulus: int = 5,
+) -> dict:
     if validation_modulus < 2:
         raise ValueError("validation modulus must be at least two")
     splits: dict[str, list[str]] = {"train": [], "validation": []}
     episodes: list[dict] = []
-    seeds: set[int] = set()
+    episode_ids: set[str] = set()
     for run in runs:
         config = json.loads((run / "config.json").read_text())
         results = json.loads((run / "results.json").read_text())
         seed = config["seed"]
-        if seed in seeds:
-            raise ValueError(f"duplicate game seed {seed}")
-        seeds.add(seed)
         if results["reason"] != "complete":
             raise ValueError(f"incomplete game {run}")
         split = "validation" if seed % validation_modulus == 0 else "train"
@@ -30,18 +33,28 @@ def export(runs: list[Path], output: Path, revision: str, source: str,
         for artifact in sorted(run.glob("policy_artifact_*.zip")):
             slot = int(artifact.stem.removeprefix("policy_artifact_"))
             with zipfile.ZipFile(artifact) as archive:
-                trajectory = json.loads(archive.read("trajectory.json"))
-            if (trajectory["schema_version"] != 1 or trajectory["game"] != "grid-wars"
-                    or trajectory["slot"] != slot
-                    or trajectory["source_revision"] != revision
-                    or trajectory["complete"] is not True
-                    or trajectory["scores"] != results["scores"]):
+                content = archive.read("trajectory.json")
+                trajectory = json.loads(content)
+            episode_id = (
+                f"grid-wars-{seed}-seat-{slot}-{hashlib.sha256(content).hexdigest()}"
+            )
+            if episode_id in episode_ids:
+                raise ValueError(f"duplicate training capture {artifact}")
+            episode_ids.add(episode_id)
+            if (
+                trajectory["schema_version"] != 1
+                or trajectory["game"] != "grid-wars"
+                or trajectory["slot"] != slot
+                or trajectory["source_revision"] != revision
+                or trajectory["complete"] is not True
+                or trajectory["scores"] != results["scores"]
+            ):
                 raise ValueError(f"invalid training artifact {artifact}")
             for row in trajectory["decisions"]:
                 if row["source"] != source:
                     continue
                 example = {
-                    "episode_id": f"grid-wars-{seed}-seat-{slot}",
+                    "episode_id": episode_id,
                     "seed": f"grid-wars-{seed}",
                     "decision_id": row["decision_id"],
                     "prompt": row["prompt"],
@@ -49,6 +62,13 @@ def export(runs: list[Path], output: Path, revision: str, source: str,
                     "game": "grid-wars",
                     "action_schema_revision": "grid-wars-gwl-v1",
                 }
+                if "prompt_template" in row:
+                    metadata = row["prompt_template"]
+                    if metadata["variant"].startswith("heldout-"):
+                        raise ValueError(
+                            "held-out wording cannot enter training exports"
+                        )
+                    example["prompt_template"] = metadata
                 splits[split].append(json.dumps(example, ensure_ascii=False))
                 count += 1
         if count == 0:
@@ -59,12 +79,20 @@ def export(runs: list[Path], output: Path, revision: str, source: str,
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
     for split, rows in splits.items():
         path = output / f"{split}.jsonl"
-        with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as destination:
+        with os.fdopen(
+            os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w"
+        ) as destination:
             destination.write("\n".join(rows) + "\n")
-    manifest = {"schema_version": 1, "game": "grid-wars", "source_revision": revision,
-                "action_schema_revision": "grid-wars-gwl-v1", "teacher": source,
-                "train_examples": len(splits["train"]),
-                "validation_examples": len(splits["validation"]), "episodes": episodes}
+    manifest = {
+        "schema_version": 1,
+        "game": "grid-wars",
+        "source_revision": revision,
+        "action_schema_revision": "grid-wars-gwl-v1",
+        "teacher": source,
+        "train_examples": len(splits["train"]),
+        "validation_examples": len(splits["validation"]),
+        "episodes": episodes,
+    }
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     return manifest
 
@@ -77,7 +105,21 @@ if __name__ == "__main__":
     parser.add_argument("--source", default="canned")
     parser.add_argument("--validation-modulus", type=int, default=5)
     args = parser.parse_args()
-    directories = [episode for run in args.runs for episode in
-                   (sorted(run.glob("episode-*")) if not (run / "results.json").exists() else [run])]
-    print(export(directories, args.output, args.source_revision, args.source,
-                 args.validation_modulus))
+    directories = [
+        episode
+        for run in args.runs
+        for episode in (
+            sorted(run.glob("episode-*"))
+            if not (run / "results.json").exists()
+            else [run]
+        )
+    ]
+    print(
+        export(
+            directories,
+            args.output,
+            args.source_revision,
+            args.source,
+            args.validation_modulus,
+        )
+    )

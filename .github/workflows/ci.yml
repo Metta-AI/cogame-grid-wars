@@ -168,7 +168,7 @@ jobs:
               fi
               echo "::group::nim r ${flags} --path:src ${t}"
               # shellcheck disable=SC2086
-              if ! nim r ${flags} --path:src "${t}"; then
+              if ! nim r ${flags} --parallelBuild:1 --path:src -o:"$RUNNER_TEMP/${t##*/}-$m" "${t}"; then
                 echo "::error::FAILED (${m}) ${t}"
                 fail=1
               fi
@@ -196,6 +196,7 @@ jobs:
             -o:/tmp/grid-wars-train-bridge tools/train_bridge.nim
           python3 tools/test_training.py /tmp/grid-wars-posttrain \
             /tmp/grid-wars-train-bridge
+          python3 tools/test_prompt_games.py /tmp/grid-wars-train-bridge
 
   # ---------------------------------------------------------------------
   # Packaging smoke: the production image builds, and one real episode runs

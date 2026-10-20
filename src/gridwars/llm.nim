@@ -12,7 +12,7 @@ import
   std/[json, os, strutils, unicode],
   bitworld/runtime,
   curly,
-  sim
+  sim, prompts
 
 const
   AnthropicUrl = "https://api.anthropic.com/v1/messages"
@@ -262,39 +262,10 @@ TICK RESOLUTION ORDER, every tick:
      when none is.
 """
 
-proc systemPrompt*(sim: Sim, seat: int): string =
-  result.add("You are " & sim.names[seat] & ", warrior id " & $(seat + 1) &
-    " (" & ColorNames[seat] & "), one of four cogs fighting for a 30x30 " &
-    "toroidal grid in Grid Wars.\n\n")
-  result.add("""THE GAME
-- You do not move a warrior. You WRITE one: a complete program in GWL, the
-  language below. The engine runs it, one action per tick, for the whole
-  battle. You get to rewrite it between rounds and nothing else.
-- x and y wrap: the board is a torus, 30 by 30.
-- Every cell has an owner (0 unclaimed, else a warrior id), at most one
-  live bomb, and a permanent corpse flag. place() claims the cell you
-  stand on, overwriting whoever owned it.
-- You start with 12 energy and gain 1 + tiles div 60 each tick, capped at
-  60. bomb() costs BOMBCOST energy. A live bomb is a WALL as well as a
-  weapon: nobody can walk into it.
-- A bomb is planted with a fuse of MAXFUSE (5) and its fuse drops by 1 in
-  the SAME tick it was planted, so a bomb planted on tick t detonates on
-  tick t+4 — five ticks of life counting the one it was planted on. The
-  blast is a plus of 5 cells that wraps. Every cell in the blast loses its owner; every warrior in it dies
-  and leaves a permanent corpse. Bombs caught in a blast chain.
-- 50 ticks without changing cell kills you. So does a fault.
-- When a warrior dies, EVERY tile it owned reverts to unclaimed at once.
-
-SCORING (zero-sum, higher is better, the four scores sum to zero)
-  raw        = tiles + 100 if alive at the end + 50 per kill - 50 per self-kill
-  roundScore = raw - (the four raws) / 4
-  score      = the mean roundScore over the rounds played
-Territory is the score, but survival is worth 100 tiles and a dead warrior
-owns nothing.
-
-You never see another warrior's source code, before or after a round. You
-see the board, and you can infer.
-""")
+proc systemPrompt*(sim: Sim, seat: int, selection: PromptSelection): string =
+  result.add(selection.trainingIntroduction(sim.names[seat] & ", warrior id " & $(seat + 1) &
+    " (" & ColorNames[seat] & ")") & "\n\n")
+  result.add(selection.rulesBriefing())
   result.add("\n" & TickOrder & "\n" & GwlReference & "\n")
   result.add("""
 OUTPUT FORMAT: reply with ONLY one JSON object, nothing else — no analysis,
@@ -468,13 +439,21 @@ proc textOf(client: LlmClient, response: Response, error, url: string): string =
     raise newException(GridWarsError, "reply cut off at max_tokens before " &
       "any JSON: " & cutRunes(result, 160).replace("\n", " "))
 
-proc choosePromptSubmission*(client: LlmClient, observation, prompt: string,
-    timeoutSeconds, slot: int): Submission =
-  ## One player-owned model call over the private observation on the wire.
-  let system = "You write one complete GWL warrior program for Grid Wars. " &
+proc nativeSystemPrompt*(selection: PromptSelection): string =
+  selection.nativeIntroduction() & " " &
     "Survive, claim territory, and use the visible rules below. Reply only " &
     "with JSON containing script as an array of lines, notes, and banner.\n\n" &
-    TickOrder & "\n" & GwlReference
+    selection.rulesBriefing() & "\n" & TickOrder & "\n" & GwlReference
+
+const OrdinaryReference = staticRead("../../docs/warrior-language.md")
+
+proc ordinarySystemPrompt*(selection: PromptSelection): string =
+  selection.ordinaryIntroduction() & "\n\n" & selection.rulesBriefing() & "\n" &
+    OrdinaryReference
+
+proc choosePromptSubmission*(client: LlmClient, observation, prompt: string,
+    timeoutSeconds, slot: int, selection: PromptSelection): Submission =
+  let system = selection.nativeSystemPrompt()
   let user = observation & "\n" & operatorBlock(prompt) &
     "\nReply with ONLY {\"script\": [\"GWL line\", ...], " &
     "\"notes\": \"\", \"banner\": \"\"}. The program must loop " &

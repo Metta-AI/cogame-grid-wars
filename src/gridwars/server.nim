@@ -34,7 +34,7 @@ import
   curly,
   mummy,
   mummy/routers,
-  llm,
+  llm, prompts,
   sim
 
 const
@@ -50,6 +50,7 @@ const
 
 type
   GameState = object
+    selection: PromptSelection
     config: GameConfig
     sim: Sim
     pendingRound: int
@@ -258,7 +259,10 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
                 "type": "turn",
                 "round": currentRound,
                 "timeout_ms": config.actionTimeoutSeconds * 1000,
-                "observation": state.sim.seatObservation(seat)
+                "observation": state.sim.seatObservation(seat),
+                "prompt_config": {"promptVariant": $state.selection.variant, "promptSeed": state.selection.seed},
+                "prompt_selection": state.selection.selectionMetadata(),
+                "system": state.selection.ordinarySystemPrompt()
               })
               waitingSeats.add(seat)
         while waitingSeats.len > 0 and epochTime() < decisionDeadline:
@@ -468,6 +472,7 @@ proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
   if config.tokens.len != config.players.len:
     raise newException(GridWarsError, "tokens and players must align")
   state.config = config
+  state.selection = promptSelection(if runtimeConfig.config.len > 0: parseJson(runtimeConfig.config) else: newJObject())
   state.sim = initSim(config)
   state.pendingRound = -1
   state.pendingSubmissions = initTable[int, Submission]()

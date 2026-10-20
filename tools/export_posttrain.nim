@@ -1,14 +1,20 @@
 ## Complete native series with the hosted prompts and parsed GWL replies.
 
 import std/[json, os, osproc, strutils]
-import gridwars/[sim, llm]
+import gridwars/[sim, llm, prompts]
 
 const Kinds = [skPainter, skBomber, skSentry]
 
 when isMainModule:
   let args = commandLineParams()
-  if args.len != 3:
-    quit("usage: grid-wars-posttrain OUTPUT EPISODES VARIANT", 1)
+  if args.len < 3 or args.len > 5:
+    quit("usage: grid-wars-posttrain OUTPUT EPISODES VARIANT [PROMPT_VARIANT PROMPT_SEED]", 1)
+  var promptConfig = newJObject()
+  if args.len >= 4: promptConfig["promptVariant"] = %args[3]
+  if args.len >= 5: promptConfig["promptSeed"] = %parseInt(args[4])
+  let configured = promptSelection(promptConfig)
+  if configured.selectedVariant in {pvHeldoutBriefing, pvHeldoutReference}:
+    quit("held-out wording cannot be exported for training", 1)
   let output = args[0]
   let episodes = parseInt(args[1])
   let variant = args[2]
@@ -27,7 +33,13 @@ when isMainModule:
     trainRows: seq[string]
     validationRows: seq[string]
     runs = newJArray()
+    wordingCounts: array[2, int]
   for seed in 1 .. episodes:
+    var selection = configured
+    let partition = ord(seed mod 5 == 0)
+    if selection.variant == pvMixed:
+      selection.seed += wordingCounts[partition]
+      inc wordingCounts[partition]
     variantConfig["seed"] = %seed
     var config = defaultGameConfig()
     config.update($variantConfig)
@@ -35,6 +47,7 @@ when isMainModule:
     var game = initSim(config)
     var rows: seq[string]
     while not game.done:
+      let snapshot = game
       for seat in game.pendingSeats():
         let kind = Kinds[(seed + game.round + seat) mod Kinds.len]
         let script = warriorLines(kind)
@@ -42,12 +55,14 @@ when isMainModule:
         let accepted = parseSubmission(reply)
         doAssert accepted.script == script
         rows.add($(%*{
-          "episode_id": "grid-wars-" & variant & "-" & $seed,
-          "seed": "grid-wars-" & variant & "-" & $seed,
+          "episode_id": "grid-wars-" & variant & "-" & $seed & "-" &
+            $selection.variant & "-" & $selection.selectedVariant & "-" & $selection.seed,
+          "seed": "grid-wars-" & $seed,
+          "prompt_template": selection.promptMetadata(systemPrompt(snapshot, seat, selection), userPrompt(snapshot, seat, "")),
           "decision_id": rows.len,
           "prompt": [
-            {"role": "system", "content": systemPrompt(game, seat)},
-            {"role": "user", "content": userPrompt(game, seat, "")}
+            {"role": "system", "content": systemPrompt(snapshot, seat, selection)},
+            {"role": "user", "content": userPrompt(snapshot, seat, "")}
           ],
           "completion": [{"role": "assistant", "content": $reply}],
           "game": "grid-wars",

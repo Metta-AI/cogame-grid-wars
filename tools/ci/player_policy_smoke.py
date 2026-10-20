@@ -9,6 +9,7 @@ import sys
 import tempfile
 import threading
 import time
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -24,6 +25,8 @@ class Stub(BaseHTTPRequestHandler):
         assert self.path == "/v1/messages"
         assert body["model"] == "anthropic/claude-haiku-4.5"
         assert "anthropic_version" not in body
+        assert "Maximize your mean roundScore across the rounds played." in body["system"]
+        assert "50 per self-kill" in body["system"]
         requests["prompt"] += 1
         assert self.headers["X-Coworld-Player-Slot"] == "1"
         response = {"content": [{"type": "text", "text": json.dumps(
@@ -53,7 +56,7 @@ with tempfile.TemporaryDirectory(prefix="gridwars-policy-") as scratch:
     root = Path(scratch)
     config = {"tokens": [f"token-{seat}" for seat in range(4)],
               "players": [{"name": f"Policy {seat}"} for seat in range(4)],
-              "seed": 7, "rounds": 2, "ticks": 30, "sampled": True,
+              "seed": 7, "promptVariant": "mixed", "promptSeed": 4, "rounds": 2, "ticks": 30, "sampled": True,
               "roundDelayMs": 0, "actionTimeoutSeconds": 8,
               "player_connect_timeout_seconds": 8}
     (root / "config.json").write_text(json.dumps(config))
@@ -76,7 +79,8 @@ with tempfile.TemporaryDirectory(prefix="gridwars-policy-") as scratch:
         else:
             raise AssertionError("game socket unavailable")
         for slot, settings in enumerate((
-            {},
+            {"POC_CAPTURE_TRAINING": "1", "POC_SOURCE_REVISION": "fixture",
+             "COWORLD_PLAYER_ARTIFACT_UPLOAD_URL": (root / "ordinary.zip").as_uri()},
             {"PLAYER_PROMPT": "Paint and survive."},
             {"PLAYER_SCRIPTED": "painter"},
             {"PLAYER_SCRIPTED": "bomber"},
@@ -102,6 +106,12 @@ with tempfile.TemporaryDirectory(prefix="gridwars-policy-") as scratch:
         assert len(submissions) == 8, len(submissions)
         assert [event["origin"] for event in submissions] == [
             "player", "player", "scripted", "scripted"] * 2, submissions
+        with zipfile.ZipFile(root / "ordinary.zip") as archive:
+            trajectory = json.loads(archive.read("trajectory.json"))
+        assert len(trajectory["decisions"]) == 2
+        for decision in trajectory["decisions"]:
+            assert decision["prompt_template"]["variant"] == "reordered"
+            assert "Maximize your mean roundScore across the rounds played." in decision["prompt"][0]["content"]
         print("Grid Wars player smoke: 2 canned, 2 prompt, 4 scripted programs, zero fallback")
     finally:
         for process in [*players, game]:
