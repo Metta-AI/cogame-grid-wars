@@ -72,3 +72,6 @@ evaluation. Native PufferLib trained 4,096 CUDA timesteps per variant in
 Slurm job 9066, then reloaded the checkpoints for held-out evaluation on
 seeds 101 and 102. Standard scored 0.0/0.0 and blitz scored -1.2/-0.4.
 These bounded runs verify execution, not stronger league play.
+
+Held-out bridge wordings require an explicit `evaluation`, `validation`, or `test`
+split. Omitted, training, and unrecognized splits reject them.
