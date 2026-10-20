@@ -23,6 +23,13 @@ with tempfile.TemporaryDirectory() as directory:
         assert all(run["rounds"] == rounds and run["decisions"] == 4 * rounds for run in manifest["runs"])
         assert len(train) == manifest["train_examples"] == 8 * 4 * rounds
         assert len(validation) == manifest["validation_examples"] == 2 * 4 * rounds
+        assert {row["prompt_template"]["variant"] for row in train} == {
+            "canonical",
+            "plain",
+            "numbered",
+            "questions",
+            "reordered",
+        }
         for row in train + validation:
             system, user = (part["content"] for part in row["prompt"])
             assert "OUTPUT FORMAT" in system

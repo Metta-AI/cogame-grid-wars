@@ -33,9 +33,13 @@ when isMainModule:
     trainRows: seq[string]
     validationRows: seq[string]
     runs = newJArray()
+    wordingCounts: array[2, int]
   for seed in 1 .. episodes:
     var selection = configured
-    if selection.variant == pvMixed: selection.seed += seed - 1
+    let partition = ord(seed mod 5 == 0)
+    if selection.variant == pvMixed:
+      selection.seed += wordingCounts[partition]
+      inc wordingCounts[partition]
     variantConfig["seed"] = %seed
     var config = defaultGameConfig()
     config.update($variantConfig)
@@ -51,7 +55,8 @@ when isMainModule:
         let accepted = parseSubmission(reply)
         doAssert accepted.script == script
         rows.add($(%*{
-          "episode_id": "grid-wars-" & variant & "-" & $seed,
+          "episode_id": "grid-wars-" & variant & "-" & $seed & "-" &
+            selection.selectionMetadata()["variant"].getStr(),
           "seed": "grid-wars-" & $seed,
           "prompt_template": selection.promptMetadata(systemPrompt(snapshot, seat, selection), userPrompt(snapshot, seat, "")),
           "decision_id": rows.len,
