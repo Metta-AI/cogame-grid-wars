@@ -14,10 +14,10 @@ Set `POC_CAPTURE_TRAINING=1` and `POC_SOURCE_REVISION=<policy commit>` to upload
 
 ```bash
 python players/ordinary/export.py /tmp/gridwars-dataset /tmp/gridwars-runs --source-revision <policy-commit>
-uv run --package metta-posttrain --extra train python -m metta_posttrain.train \
-  --dataset /tmp/gridwars-dataset --output /tmp/gridwars-adapter --model /path/to/base-model \
-  --device cpu --max-steps 100 --max-length 4096 --max-eval-examples 128
 ```
+
+Use the [post-training research package](https://github.com/Metta-AI/posttraining-research/tree/main/packages/metta-posttraining)
+for current training and adapter-packaging workflows.
 
 The existing `tools/export_posttrain.nim` also exports complete scripted games without containers. The artifact exporter admits only completed games, accepted programs, a matching source revision, and separate whole-game seed splits.
 
@@ -35,3 +35,6 @@ The game now supplies the system message and episode-stable wording selection.
 Deploy game and player together. Capture adds prompt metadata to accepted
 decisions; existing stored version-one artifacts remain readable. See
 [prompt diversity](../../docs/TRAINING.md).
+
+Ordinary export IDs include the complete capture hash. Matched wording runs may
+share a scenario seed and remain in the same split; duplicate captures are rejected.
