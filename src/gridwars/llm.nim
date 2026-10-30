@@ -450,12 +450,12 @@ proc textOf(client: LlmClient, response: Response, error, url: string): string =
     raise newException(GridWarsError, "reply cut off at max_tokens before " &
       "any JSON: " & cutRunes(result, 160).replace("\n", " "))
 
-proc choosePromptSubmission*(client: LlmClient, system, observation, prompt: string,
-    parts: JsonNode, timeoutSeconds, slot: int): Submission =
+proc choosePromptReply*(client: LlmClient, system, observation, prompt: string,
+    parts: JsonNode, timeoutSeconds, slot: int): string =
   let user = userPrompt(observation, parts, prompt)
   var request = client.requestFor(system, user, -1)
   if client.transport == ltSidecar:
     request.headers["x-coworld-player-slot"] = $slot
   let response = client.curl.post(request.url, request.headers, request.body,
     timeoutSeconds)
-  parseSubmission(extractJsonObject(client.textOf(response, "", request.url)))
+  client.textOf(response, "", request.url)

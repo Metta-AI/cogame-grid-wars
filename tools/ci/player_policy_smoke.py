@@ -20,7 +20,17 @@ ROOT = Path(__file__).resolve().parents[2]
 PAINTER = (ROOT / "data/warriors/painter.gwl").read_text().splitlines()
 ACTION = {"script": PAINTER, "notes": "ordinary fixture", "banner": "painting"}
 RAW = "```json\n" + json.dumps(ACTION) + "\n```"
+INVALID_RAW = json.dumps(
+    {
+        "script": ["# compiler feedback fixture"] * 19 + ["var broken = if true:"],
+        "notes": "",
+        "banner": "",
+    }
+)
+
 requests = {"prompt": 0}
+mode = {"reject_round": False}
+native_users = []
 
 
 class Stub(BaseHTTPRequestHandler):
@@ -39,8 +49,16 @@ class Stub(BaseHTTPRequestHandler):
         assert user.endswith("characters, banner at most 80 characters.")
         assert self.headers["X-Coworld-Player-Slot"] == "1"
         requests["prompt"] += 1
+        native_users.append(user)
         response = {
-            "content": [{"type": "text", "text": RAW}],
+            "content": [
+                {
+                    "type": "text",
+                    "text": INVALID_RAW
+                    if mode["reject_round"] and user.startswith("Round 2 ")
+                    else RAW,
+                }
+            ],
             "stop_reason": "end_turn",
         }
         encoded = json.dumps(response).encode()
@@ -70,6 +88,8 @@ def fixture_generator(_adapter):
     def generate(messages):
         assert "Maximize your mean roundScore" in messages[0]["content"]
         assert messages[1]["content"].endswith("characters, banner at most 80 characters.")
+        if sys.argv[3] and messages[1]["content"].startswith("Round 2 "):
+            return sys.argv[3]
         return sys.argv[2]
     return generate
 module.TransformersGenerator = fixture_generator
@@ -83,7 +103,9 @@ threading.Thread(target=model.serve_forever, daemon=True).start()
 try:
     with tempfile.TemporaryDirectory(prefix="gridwars-raw-policy-") as scratch:
         runs = []
-        for index, seed in enumerate([7, 10]):
+        for index, seed in enumerate([7, 10, 11]):
+            mode["reject_round"] = seed == 11
+            native_users.clear()
             root = Path(scratch) / str(seed)
             root.mkdir()
             port = free_port()
@@ -162,6 +184,7 @@ try:
                             ORDINARY_FIXTURE,
                             str(ROOT / "players/ordinary/player.py"),
                             RAW,
+                            INVALID_RAW if seed == 11 else "",
                         ]
                         if slot == 0
                         else [PLAYER]
@@ -192,15 +215,38 @@ try:
                     event for event in replay["events"] if event["kind"] == "submit"
                 ]
                 assert len(submissions) == 20
-                assert [event["origin"] for event in submissions] == [
-                    "player",
-                    "player",
-                    "scripted",
-                    "scripted",
-                ] * 5
+                expected_origins = ["player", "player", "scripted", "scripted"] * 5
+                if seed == 11:
+                    expected_origins[4:6] = ["fallback", "fallback"]
+                assert [event["origin"] for event in submissions] == expected_origins
                 with zipfile.ZipFile(root / "policy_artifact_0.zip") as archive:
                     trajectory = json.loads(archive.read("trajectory.json"))
-                assert len(trajectory["decisions"]) == 5
+                assert len(trajectory["decisions"]) == (4 if seed == 11 else 5)
+                if seed == 11:
+                    failures = [
+                        event for event in submissions if event["origin"] == "fallback"
+                    ]
+                    assert len(failures) == 2 and failures[0]["compileError"]
+                    assert failures[0]["compileError"] == failures[1]["compileError"]
+                    assert (
+                        failures[0]["compileError"]
+                        == "line 20: 'if' is not an expression"
+                    )
+                    feedback = (
+                        "  your script did NOT compile: " + failures[0]["compileError"]
+                    )
+                    assert feedback in next(
+                        user for user in native_users if user.startswith("Round 3 ")
+                    )
+                    ordinary_next = next(
+                        decision
+                        for decision in trajectory["decisions"]
+                        if decision["round"] == 3
+                    )
+                    assert feedback in ordinary_next["prompt"][1]["content"]
+                    assert [
+                        decision["round"] for decision in trajectory["decisions"]
+                    ] == [1, 3, 4, 5]
                 for decision in trajectory["decisions"]:
                     assert decision["prompt_template"]["variant"] == "reordered"
                     assert (
@@ -218,7 +264,8 @@ try:
                         {"role": "assistant", "content": RAW}
                     ]
                     assert decision["native_action"] == ACTION
-                runs.append(root)
+                if seed != 11:
+                    runs.append(root)
             finally:
                 for process in [*players, game]:
                     if process.poll() is None:
@@ -256,7 +303,8 @@ try:
             raise AssertionError("native-normalized raw target was admitted")
         print(
             "Grid Wars system check: two complete 5x400 games; both fixture model paths accept fenced text; "
-            "10 exact raw captures/exported targets; changed native action rejected; zero fallback"
+            "10 exact raw exported targets; changed action rejected; two zero-fallback games plus "
+            "one full game with matching compiler feedback after rejected replies"
         )
 finally:
     model.shutdown()

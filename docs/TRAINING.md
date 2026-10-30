@@ -103,3 +103,10 @@ format and evidence limits. The full system fixture plays two complete five-roun
 400-tick games, exercises both model callback paths with fenced responses, exports
 separate whole-game splits, and rejects a changed-target control. Its model
 callbacks are deterministic local fixtures, not genuine model or teacher traces.
+
+Both model players submit raw replies to the game's one parser/compiler.
+A framed but invalid program immediately installs the existing sentry fallback
+with its real rejection reason. The following observation keeps that compiler
+feedback for both players. The system check includes a third full game with the
+same rejected reply in both model paths and verifies matching next-round feedback;
+rejected decisions do not enter ordinary exports.
