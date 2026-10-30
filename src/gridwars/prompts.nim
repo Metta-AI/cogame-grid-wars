@@ -59,29 +59,6 @@ proc trainingIntroduction*(selection: PromptSelection, identity: string): string
   of pvHeldoutReference: "Grid Wars arena: 30x30 toroidal grid. Competitors: four cogs. Your identity: " & identity & "."
   of pvMixed: raise newException(ValueError, "mixed must resolve")
 
-proc nativeIntroduction*(selection: PromptSelection): string =
-  case selection.selectedVariant
-  of pvCanonical: "You write one complete GWL warrior program for Grid Wars."
-  of pvPlain: "Your task in Grid Wars is to write one complete GWL warrior program."
-  of pvNumbered: "1. Game: Grid Wars. 2. Task: write one complete GWL warrior program."
-  of pvQuestions: "What do you write for Grid Wars? One complete GWL warrior program."
-  of pvReordered: "For Grid Wars, write one complete warrior program in GWL."
-  of pvHeldoutBriefing: "Prepare a complete GWL warrior program to participate in Grid Wars."
-  of pvHeldoutReference: "Grid Wars assignment: author one complete GWL warrior program."
-  of pvMixed: raise newException(ValueError, "mixed must resolve")
-
-proc ordinaryIntroduction*(selection: PromptSelection): string =
-  let first = case selection.selectedVariant
-    of pvCanonical: "Write one complete GWL warrior program."
-    of pvPlain: "Your task is to write one complete GWL warrior program."
-    of pvNumbered: "Task 1: write one complete GWL warrior program."
-    of pvQuestions: "What must you write? One complete GWL warrior program."
-    of pvReordered: "In GWL, write one complete warrior program."
-    of pvHeldoutBriefing: "Prepare a complete warrior program using GWL."
-    of pvHeldoutReference: "Assignment: author one complete GWL warrior program."
-    of pvMixed: raise newException(ValueError, "mixed must resolve")
-  first & " Reply with JSON containing script as an array of lines, notes, and banner."
-
 const CanonicalRules = """THE GAME
 - You do not move a warrior. You WRITE one: a complete program in GWL, the
   language below. The engine runs it, one action per tick, for the whole

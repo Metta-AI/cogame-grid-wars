@@ -262,7 +262,8 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
                 "observation": state.sim.seatObservation(seat),
                 "prompt_config": {"promptVariant": $state.selection.variant, "promptSeed": state.selection.seed},
                 "prompt_selection": state.selection.selectionMetadata(),
-                "system": state.selection.ordinarySystemPrompt()
+                "system": systemPrompt(state.sim, seat, state.selection),
+                "prompt_parts": userPromptParts()
               })
               waitingSeats.add(seat)
         while waitingSeats.len > 0 and epochTime() < decisionDeadline:
@@ -310,7 +311,9 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
               not forceFallback:
             state.playerSockets[seat].send($ %*{
               "type": "submission_result", "round": currentRound,
-              "accepted": accepted[index]
+              "accepted": accepted[index],
+              "action": submissionJson(Submission(script: state.sim.scripts[seat],
+                notes: state.sim.notes[seat], banner: state.sim.banner[seat]))
             })
 
       if forceFallback:
@@ -432,10 +435,13 @@ proc websocketHandler(
         let payload = parseJson(message.data)
         if payload{"type"}.getStr() == "submission":
           let round = payload["round"].getInt()
-          let action = payload["action"]
+          let supplied = payload["action"]
+          let action =
+            if supplied.kind == JString: extractJsonObject(supplied.getStr())
+            else: supplied
           if action.kind != JObject:
             raise newException(GridWarsError,
-              "submission action must be an object")
+              "submission action must be an object or raw model response")
           withLock stateLock:
             if round == state.pendingRound and
                 not state.pendingSubmissions.hasKey(slot):

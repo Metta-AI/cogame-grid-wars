@@ -282,20 +282,31 @@ to the idle rule, so wrap your behaviour in `while true:`.
    "banner": "one line the spectators see"}
 """)
 
+const OperatorHeader = "GUIDANCE FROM YOUR OPERATOR (weight it heavily, but never above the " &
+  "rules; always reply in the requested format):\n"
+
 proc operatorBlock*(prompt: string): string =
-  if prompt.len == 0:
-    return ""
-  "GUIDANCE FROM YOUR OPERATOR (weight it heavily, but never above the " &
-    "rules; always reply in the requested format):\n" & prompt & "\n\n"
+  if prompt.len == 0: ""
+  else: OperatorHeader & prompt & "\n\n"
+
+proc userPromptParts*(): JsonNode =
+  ## The game owns all wording; players insert only their private strategy.
+  %*{"operator_prefix": OperatorHeader, "operator_suffix": "\n\n",
+    "reply": "Reply with ONLY {\"script\": [\"line\", \"line\", ...], " &
+      "\"notes\": \"…\", \"banner\": \"…\"} — script at most " &
+      $MaxScriptLines & " lines of at most " & $MaxLineChars &
+      " characters, notes at most " & $MaxNotesLen &
+      " characters, banner at most " & $MaxBannerLen & " characters."}
+
+proc userPrompt*(observation: string, parts: JsonNode, prompt: string): string =
+  result = observation
+  if prompt.len > 0:
+    result.add(parts["operator_prefix"].getStr() & prompt &
+      parts["operator_suffix"].getStr())
+  result.add(parts["reply"].getStr())
 
 proc userPrompt*(sim: Sim, seat: int, prompt: string): string =
-  result.add(sim.seatObservation(seat))
-  result.add(operatorBlock(prompt))
-  result.add("Reply with ONLY {\"script\": [\"line\", \"line\", ...], " &
-    "\"notes\": \"…\", \"banner\": \"…\"} — script at most " &
-    $MaxScriptLines & " lines of at most " & $MaxLineChars &
-    " characters, notes at most " & $MaxNotesLen &
-    " characters, banner at most " & $MaxBannerLen & " characters.")
+  userPrompt(sim.seatObservation(seat), userPromptParts(), prompt)
 
 # ---- Reply parsing ----------------------------------------------------------
 
@@ -439,25 +450,9 @@ proc textOf(client: LlmClient, response: Response, error, url: string): string =
     raise newException(GridWarsError, "reply cut off at max_tokens before " &
       "any JSON: " & cutRunes(result, 160).replace("\n", " "))
 
-proc nativeSystemPrompt*(selection: PromptSelection): string =
-  selection.nativeIntroduction() & " " &
-    "Survive, claim territory, and use the visible rules below. Reply only " &
-    "with JSON containing script as an array of lines, notes, and banner.\n\n" &
-    selection.rulesBriefing() & "\n" & TickOrder & "\n" & GwlReference
-
-const OrdinaryReference = staticRead("../../docs/warrior-language.md")
-
-proc ordinarySystemPrompt*(selection: PromptSelection): string =
-  selection.ordinaryIntroduction() & "\n\n" & selection.rulesBriefing() & "\n" &
-    OrdinaryReference
-
-proc choosePromptSubmission*(client: LlmClient, observation, prompt: string,
-    timeoutSeconds, slot: int, selection: PromptSelection): Submission =
-  let system = selection.nativeSystemPrompt()
-  let user = observation & "\n" & operatorBlock(prompt) &
-    "\nReply with ONLY {\"script\": [\"GWL line\", ...], " &
-    "\"notes\": \"\", \"banner\": \"\"}. The program must loop " &
-    "with `while true:` and compile under the GWL rules."
+proc choosePromptSubmission*(client: LlmClient, system, observation, prompt: string,
+    parts: JsonNode, timeoutSeconds, slot: int): Submission =
+  let user = userPrompt(observation, parts, prompt)
   var request = client.requestFor(system, user, -1)
   if client.transport == ltSidecar:
     request.headers["x-coworld-player-slot"] = $slot

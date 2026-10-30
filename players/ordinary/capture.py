@@ -19,17 +19,38 @@ class Capture:
         self.upload_url = os.environ["COWORLD_PLAYER_ARTIFACT_UPLOAD_URL"]
         self.rows: list[dict] = []
 
-    def record(self, system: str, user: str, action: dict, source: str, round: int, prompt_template: dict) -> None:
+    def record(
+        self,
+        system: str,
+        user: str,
+        action: dict | str,
+        source: str,
+        round: int,
+        prompt_template: dict,
+        native_action: dict | None = None,
+    ) -> None:
         self.rows.append(
             {
                 "prompt_template": prompt_template,
                 "decision_id": len(self.rows),
                 "round": round,
                 "source": source,
-                "prompt": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                "completion": [{"role": "assistant", "content": json.dumps(action, sort_keys=True)}],
+                "prompt": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "completion": [
+                    {
+                        "role": "assistant",
+                        "content": action
+                        if isinstance(action, str)
+                        else json.dumps(action, sort_keys=True),
+                    }
+                ],
             }
         )
+        if native_action is not None:
+            self.rows[-1]["native_action"] = native_action
 
     def upload(self, scores: list[float]) -> None:
         archive = io.BytesIO()
@@ -58,7 +79,10 @@ class Capture:
             os.replace(pending, target)
         else:
             request = urllib.request.Request(
-                self.upload_url, data=data, method="PUT", headers={"Content-Type": "application/zip"}
+                self.upload_url,
+                data=data,
+                method="PUT",
+                headers={"Content-Type": "application/zip"},
             )
             with urllib.request.urlopen(request, timeout=10) as response:
                 response.read()
