@@ -10,6 +10,52 @@ import zipfile
 from pathlib import Path
 
 
+def _unique_fields(pairs: list[tuple[str, object]]) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate raw JSON field")
+        result[key] = value
+    return result
+
+
+def _finite_only(value: str) -> None:
+    raise ValueError(f"nonfinite raw JSON value: {value}")
+
+
+def _unchanged(raw: object, native: object, depth: int = 0) -> bool:
+    if depth > 32 or type(raw) is not type(native):
+        return False
+    if isinstance(raw, dict):
+        return all(
+            key in native and _unchanged(value, native[key], depth + 1)
+            for key, value in raw.items()
+        )
+    if isinstance(raw, list):
+        return len(raw) == len(native) and all(
+            _unchanged(a, b, depth + 1) for a, b in zip(raw, native, strict=True)
+        )
+    return raw == native
+
+
+def _check_native_target(row: dict) -> None:
+    # Historical captures retain their old contract. New captures retain both
+    # exact assistant text and native effects; never train changed raw fields.
+    if "native_action" not in row:
+        return
+    text = row["completion"][0]["content"]
+    first, last = text.find("{"), text.rfind("}")
+    if first < 0 or last <= first:
+        raise ValueError("raw response has no complete action")
+    raw = json.loads(
+        text[first : last + 1],
+        object_pairs_hook=_unique_fields,
+        parse_constant=_finite_only,
+    )
+    if not isinstance(raw, dict) or not _unchanged(raw, row["native_action"]):
+        raise ValueError("raw target changed during native installation")
+
+
 def export(
     runs: list[Path],
     output: Path,
@@ -53,6 +99,7 @@ def export(
             for row in trajectory["decisions"]:
                 if row["source"] != source:
                     continue
+                _check_native_target(row)
                 example = {
                     "episode_id": episode_id,
                     "seed": f"grid-wars-{seed}",

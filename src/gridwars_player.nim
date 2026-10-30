@@ -13,7 +13,7 @@
 import
   std/[json, options, os, strutils],
   whisky,
-  gridwars/[llm, prompts]
+  gridwars/llm
 
 const DefaultPrompt = """
 Write a warrior that claims ground and stays alive. Paint every cell you
@@ -71,26 +71,32 @@ when isMainModule:
             slot, " as ", payload{"name"}.getStr(),
             " (warrior ", payload{"id"}.getInt(), ")"
         of "turn":
-          var submission: Submission
+          var action: JsonNode
+          var source = "player"
+          var rejected = ""
           if scriptKind != skNone:
-            submission = scriptedSubmission(scriptKind)
+            action = submissionJson(scriptedSubmission(scriptKind))
+            source = "scripted"
           elif client.disabled:
-            submission = fallbackSubmission("no player model credential")
+            let fallback = fallbackSubmission("no player model credential")
+            action = submissionJson(fallback)
+            source = "fallback"
+            rejected = fallback.rejected
           else:
             try:
-              submission = choosePromptSubmission(client,
-                payload["observation"].getStr(), prompt,
-                max(1, payload["timeout_ms"].getInt() div 1000 - 1), slot,
-                promptSelection(payload["prompt_config"]))
+              action = %choosePromptReply(client,
+                payload["system"].getStr(), payload["observation"].getStr(), prompt,
+                payload["prompt_parts"],
+                max(1, payload["timeout_ms"].getInt() div 1000 - 1), slot)
             except CatchableError as error:
               echo "grid-wars player: model call failed: ", error.msg
-              submission = fallbackSubmission(error.msg)
+              let fallback = fallbackSubmission(error.msg)
+              action = submissionJson(fallback)
+              source = "fallback"
+              rejected = fallback.rejected
           socket.send($ %*{"type": "submission",
             "round": payload["round"].getInt(),
-            "source": (if submission.origin == "fallback": "fallback"
-                       elif submission.origin == "scripted": "scripted"
-                       else: "player"),
-            "action": submissionJson(submission)})
+            "source": source, "action": action, "rejected": rejected})
         of "final":
           echo "grid-wars player: final scores ", payload{"scores"}
           break

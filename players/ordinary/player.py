@@ -12,10 +12,18 @@ import websocket
 from capture import Capture
 
 
-def choose(turn: dict, generator) -> tuple[dict, str]:
-    turn["user"] = turn["observation"] + "\n" + os.environ.get("PLAYER_PROMPT", "")
+def choose(turn: dict, generator) -> tuple[dict | str, str]:
+    parts = turn["prompt_parts"]
+    strategy = os.environ.get("PLAYER_PROMPT", "")
+    turn["user"] = turn["observation"]
+    if strategy:
+        turn["user"] += parts["operator_prefix"] + strategy + parts["operator_suffix"]
+    turn["user"] += parts["reply"]
     warrior_dir = Path(
-        os.environ.get("GRIDWARS_WARRIOR_DIR", Path(__file__).resolve().parents[2] / "data" / "warriors")
+        os.environ.get(
+            "GRIDWARS_WARRIOR_DIR",
+            Path(__file__).resolve().parents[2] / "data" / "warriors",
+        )
     )
     if generator:
         completion = generator(
@@ -24,11 +32,15 @@ def choose(turn: dict, generator) -> tuple[dict, str]:
                 {"role": "user", "content": turn["user"]},
             ]
         )
-        action = json.loads(completion)
-        if not isinstance(action, dict):
-            raise ValueError("trained Grid Wars submission must be a JSON object")
-        return action, "trained"
-    return {"script": (warrior_dir / "painter.gwl").read_text().splitlines(), "notes": "", "banner": ""}, "canned"
+        if not isinstance(completion, str):
+            raise TypeError("trained Grid Wars generator must return text")
+        # The native game owns extraction, normalization and GWL compilation.
+        return completion, "trained"
+    return {
+        "script": (warrior_dir / "painter.gwl").read_text().splitlines(),
+        "notes": "",
+        "banner": "",
+    }, "canned"
 
 
 def main() -> None:
@@ -41,10 +53,14 @@ def main() -> None:
 
         generator = TransformersGenerator(Path(adapter))
     backend = "trained" if adapter else "canned"
-    artifact = Capture(slot, backend) if os.environ.get("POC_CAPTURE_TRAINING") == "1" else None
+    artifact = (
+        Capture(slot, backend)
+        if os.environ.get("POC_CAPTURE_TRAINING") == "1"
+        else None
+    )
     socket = websocket.create_connection(url, timeout=60)
     socket.settimeout(None)
-    pending: dict[int, tuple[dict, dict, str]] = {}
+    pending: dict[int, tuple[dict, dict | str, str]] = {}
     while True:
         opcode, data = socket.recv_data(control_frame=True)
         if opcode == websocket.ABNF.OPCODE_CLOSE:
@@ -57,7 +73,14 @@ def main() -> None:
             action, source = choose(frame, generator)
             pending[frame["round"]] = (frame, action, source)
             socket.send(
-                json.dumps({"type": "submission", "round": frame["round"], "source": "player", "action": action})
+                json.dumps(
+                    {
+                        "type": "submission",
+                        "round": frame["round"],
+                        "source": "player",
+                        "action": action,
+                    }
+                )
             )
         elif kind == "submission_result":
             turn, action, source = pending.pop(frame["round"])
@@ -70,9 +93,14 @@ def main() -> None:
                     frame["round"],
                     {
                         **turn["prompt_selection"],
-                        "system_sha256": hashlib.sha256(turn["system"].encode()).hexdigest(),
-                        "user_sha256": hashlib.sha256(turn["user"].encode()).hexdigest(),
+                        "system_sha256": hashlib.sha256(
+                            turn["system"].encode()
+                        ).hexdigest(),
+                        "user_sha256": hashlib.sha256(
+                            turn["user"].encode()
+                        ).hexdigest(),
                     },
+                    frame["action"],
                 )
         elif kind == "final":
             if pending:
@@ -81,7 +109,9 @@ def main() -> None:
                 artifact.upload(frame["scores"])
             break
     socket.close()
-    print(f"Grid Wars ordinary player finished: slot={slot} backend={backend}", flush=True)
+    print(
+        f"Grid Wars ordinary player finished: slot={slot} backend={backend}", flush=True
+    )
 
 
 if __name__ == "__main__":
